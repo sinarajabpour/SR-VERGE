@@ -556,6 +556,12 @@ export interface TranslationResources {
         }
       }
       page: {
+        actions: {
+          editRules: string
+          globalRules: string
+          noProfile: string
+          noRulesEnhancement: string
+        }
         provider: {
           actions: {
             update: string

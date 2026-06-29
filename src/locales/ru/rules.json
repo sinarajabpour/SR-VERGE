@@ -8,6 +8,12 @@
         "update": "Обновить"
       }
     },
+    "actions": {
+      "editRules": "Edit Rules",
+      "globalRules": "Global Rules",
+      "noProfile": "Import a profile first",
+      "noRulesEnhancement": "Use Profiles → right-click → Edit Rules"
+    },
     "title": "Правила"
   },
   "feedback": {

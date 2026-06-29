@@ -8,6 +8,12 @@
         "update": "更新"
       }
     },
+    "actions": {
+      "editRules": "Edit Rules",
+      "globalRules": "Global Rules",
+      "noProfile": "Import a profile first",
+      "noRulesEnhancement": "Use Profiles → right-click → Edit Rules"
+    },
     "title": "規則"
   },
   "feedback": {
