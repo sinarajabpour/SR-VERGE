@@ -155,19 +155,21 @@ async fn init_dns_config() -> Result<()> {
         (
             "default-nameserver".into(),
             Value::Sequence(vec![
-                Value::String("system".into()),
-                Value::String("223.6.6.6".into()),
+                Value::String("1.1.1.1".into()),
                 Value::String("8.8.8.8".into()),
-                Value::String("2400:3200::1".into()),
-                Value::String("2001:4860:4860::8888".into()),
+                Value::String("9.9.9.9".into()),
             ]),
         ),
         (
             "nameserver".into(),
             Value::Sequence(vec![
+                // system:// first so resolution works in regions where the
+                // public DoH endpoints below are blocked (e.g. Iran/China).
+                Value::String("system://".into()),
+                Value::String("https://1.1.1.1/dns-query".into()),
+                Value::String("https://dns.google/dns-query".into()),
+                Value::String("1.1.1.1".into()),
                 Value::String("8.8.8.8".into()),
-                Value::String("https://doh.pub/dns-query".into()),
-                Value::String("https://dns.alidns.com/dns-query".into()),
             ]),
         ),
         ("fallback".into(), Value::Sequence(vec![])),
@@ -178,9 +180,15 @@ async fn init_dns_config() -> Result<()> {
         (
             "proxy-server-nameserver".into(),
             Value::Sequence(vec![
-                Value::String("https://doh.pub/dns-query".into()),
-                Value::String("https://dns.alidns.com/dns-query".into()),
-                Value::String("tls://223.5.5.5".into()),
+                // system:// first: resolve proxy-server hostnames via the OS
+                // resolver, which works in censored regions where the public
+                // DoH endpoints below are blocked. Without this, proxy domains
+                // resolve to fake-ip under TUN and every node times out.
+                Value::String("system://".into()),
+                Value::String("https://1.1.1.1/dns-query".into()),
+                Value::String("https://dns.google/dns-query".into()),
+                Value::String("1.1.1.1".into()),
+                Value::String("8.8.8.8".into()),
             ]),
         ),
         ("direct-nameserver".into(), Value::Sequence(vec![])),

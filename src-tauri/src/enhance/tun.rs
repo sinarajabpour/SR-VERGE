@@ -57,6 +57,37 @@ pub fn use_tun(mut config: Mapping, enable: bool) -> Mapping {
                 revise!(dns_val, "fake-ip-range", "198.18.0.1/16");
             }
 
+            // TUN + fake-ip requires real resolvers, otherwise proxy servers
+            // given as domains resolve to fake IPs and every proxy times out.
+            // These are only added when absent, so an explicit user/dns_config
+            // value always wins.
+            //
+            // `system://` (the OS resolver) is listed first so proxy-server
+            // hostnames resolve exactly as they do outside TUN mode. This is
+            // essential in censored regions (e.g. Iran/China) where the public
+            // DoH endpoints below are themselves blocked — without it the proxy
+            // server domain never resolves and every node times out, even though
+            // system-proxy mode works. The DoH/plain entries remain as fallback.
+            let global_resolvers = || {
+                Value::Sequence(vec![
+                    Value::String("system://".into()),
+                    Value::String("https://1.1.1.1/dns-query".into()),
+                    Value::String("https://dns.google/dns-query".into()),
+                    Value::String("1.1.1.1".into()),
+                    Value::String("8.8.8.8".into()),
+                ])
+            };
+            let bootstrap_resolvers = || {
+                Value::Sequence(vec![
+                    Value::String("1.1.1.1".into()),
+                    Value::String("8.8.8.8".into()),
+                    Value::String("9.9.9.9".into()),
+                ])
+            };
+            append!(dns_val, "default-nameserver", bootstrap_resolvers());
+            append!(dns_val, "nameserver", global_resolvers());
+            append!(dns_val, "proxy-server-nameserver", global_resolvers());
+
             #[cfg(target_os = "macos")]
             {
                 AsyncHandler::spawn(move || async move {
