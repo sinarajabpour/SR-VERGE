@@ -8,19 +8,20 @@
     },
     "batch": {
       "actions": {
-        "delete": "Delete Selected Profiles",
-        "selectAll": "Select All",
-        "deselectAll": "Deselect All",
-        "done": "Done"
+        "delete": "حذف پروفایل‌های انتخاب‌شده",
+        "selectAll": "انتخاب همه",
+        "deselectAll": "لغو انتخاب همه",
+        "done": "انجام شد"
       },
       "summary": {
-        "selected": "Selected",
-        "items": "items"
+        "selected": "انتخاب‌شده",
+        "items": "مورد"
       },
-      "title": "Batch Operations"
+      "title": "عملیات گروهی"
     },
     "importForm": {
       "placeholder": "آدرس پروفایل",
+      "uriProfileName": "گره‌های واردشده",
       "actions": {
         "paste": "چسباندن"
       }
@@ -31,18 +32,18 @@
         "onlyYaml": "فقط فایل‌های YAML پشتیبانی می‌شوند"
       },
       "notifications": {
-        "importRetry": "Import failed, retrying with Clash proxy...",
-        "importFail": "Import failed even with Clash proxy",
-        "importNeedsRefresh": "Profile imported but may need manual refresh",
-        "importSuccess": "Profile imported successfully, please restart if not visible",
+        "importRetry": "وارد کردن ناموفق بود، تلاش مجدد با پروکسی Clash...",
+        "importFail": "وارد کردن حتی با پروکسی Clash ناموفق بود",
+        "importNeedsRefresh": "پروفایل وارد شد اما ممکن است به به‌روزرسانی دستی نیاز داشته باشد",
+        "importSuccess": "پروفایل با موفقیت وارد شد، در صورت عدم نمایش برنامه را مجدداً اجرا کنید",
         "profileSwitched": "پروفایل تغییر یافت",
         "profileReactivated": "پروفایل مجدداً فعال شد",
-        "switchInterrupted": "Profile switch interrupted by new selection",
-        "batchDeleted": "Selected profiles deleted successfully"
+        "switchInterrupted": "تعویض پروفایل با انتخاب جدید قطع شد",
+        "batchDeleted": "پروفایل‌های انتخاب‌شده با موفقیت حذف شدند"
       },
       "notices": {
-        "forceRefreshCompleted": "Force refresh completed",
-        "emergencyRefreshFailed": "Emergency refresh failed: {{message}}"
+        "forceRefreshCompleted": "به‌روزرسانی اجباری کامل شد",
+        "emergencyRefreshFailed": "به‌روزرسانی اضطراری ناموفق بود: {{message}}"
       }
     },
     "title": "پروفایل‌ها"
@@ -50,16 +51,16 @@
   "components": {
     "card": {
       "labels": {
-        "clickToImport": "Click to import subscription"
+        "clickToImport": "برای وارد کردن اشتراک کلیک کنید"
       }
     },
     "fileInput": {
       "chooseFile": "انتخاب فایل"
     },
     "menu": {
-      "home": "Home",
+      "home": "خانه",
       "select": "انتخاب",
-      "shareQrCode": "Share QR Code",
+      "shareQrCode": "اشتراک‌گذاری کد QR",
       "editInfo": "ویرایش اطلاعات",
       "editFile": "ویرایش فایل",
       "editRules": "ویرایش قوانین",
@@ -69,29 +70,29 @@
       "extendScript": "ادغام اسکریپت",
       "openFile": "باز کردن فایل",
       "update": "به‌روزرسانی",
-      "updateViaProxy": "Update via proxy"
+      "updateViaProxy": "به‌روزرسانی از طریق پروکسی"
     },
     "more": {
       "global": {
-        "merge": "Global Extend Config",
-        "script": "Global Extend Script"
+        "merge": "پیکربندی توسعه سراسری",
+        "script": "اسکریپت توسعه سراسری"
       },
       "chips": {
-        "merge": "Merge",
-        "script": "Script"
+        "merge": "ادغام",
+        "script": "اسکریپت"
       }
     },
     "profileItem": {
       "tooltips": {
-        "showLast": "Click to show last update time",
-        "showNext": "Click to show next update"
+        "showLast": "برای نمایش زمان آخرین به‌روزرسانی کلیک کنید",
+        "showNext": "برای نمایش به‌روزرسانی بعدی کلیک کنید"
       },
       "status": {
-        "lastUpdateFailed": "Last Update failed",
-        "nextUp": "Next Up",
-        "noSchedule": "No schedule",
-        "unknown": "Unknown",
-        "autoUpdateDisabled": "Auto update disabled"
+        "lastUpdateFailed": "آخرین به‌روزرسانی ناموفق بود",
+        "nextUp": "بعدی",
+        "noSchedule": "بدون زمان‌بندی",
+        "unknown": "نامشخص",
+        "autoUpdateDisabled": "به‌روزرسانی خودکار غیرفعال است"
       }
     }
   },
@@ -105,17 +106,17 @@
         "type": "نوع",
         "description": "توضیحات",
         "subscriptionUrl": "آدرس اشتراک",
-        "httpTimeout": "HTTP Request Timeout",
+        "httpTimeout": "مهلت زمانی درخواست HTTP",
         "updateInterval": "فاصله زمانی به‌روزرسانی",
         "useSystemProxy": "استفاده از پراکسی سیستم",
         "useClashProxy": "استفاده از پراکسی Clash",
         "acceptInvalidCerts": "پذیرش گواهی‌نامه‌های نامعتبر (خطرناک)",
-        "allowAutoUpdate": "Allow Auto Update"
+        "allowAutoUpdate": "اجازه به‌روزرسانی خودکار"
       },
       "feedback": {
         "notifications": {
-          "creationRetry": "Profile creation failed, retrying with Clash proxy...",
-          "creationSuccess": "Profile creation succeeded with Clash proxy"
+          "creationRetry": "ایجاد پروفایل ناموفق بود، تلاش مجدد با پروکسی Clash...",
+          "creationSuccess": "ایجاد پروفایل با پروکسی Clash موفق بود"
         }
       }
     },
@@ -180,7 +181,7 @@
       "title": "کنسول اسکریپت"
     },
     "qrViewer": {
-      "title": "Subscription QR Code"
+      "title": "کد QR اشتراک"
     }
   }
 }

@@ -124,6 +124,7 @@ export const translationKeys = [
   'profiles.page.batch.summary.items',
   'profiles.page.batch.title',
   'profiles.page.importForm.placeholder',
+  'profiles.page.importForm.uriProfileName',
   'profiles.page.importForm.actions.paste',
   'profiles.page.feedback.errors.invalidUrl',
   'profiles.page.feedback.errors.onlyYaml',

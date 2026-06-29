@@ -21,6 +21,7 @@
     },
     "importForm": {
       "placeholder": "訂閱檔網址",
+      "uriProfileName": "Imported Nodes",
       "actions": {
         "paste": "貼上"
       }

@@ -21,6 +21,7 @@
     },
     "importForm": {
       "placeholder": "URL профиля",
+      "uriProfileName": "Imported Nodes",
       "actions": {
         "paste": "Вставить"
       }

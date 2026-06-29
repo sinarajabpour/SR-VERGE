@@ -17,18 +17,18 @@
       "type": "نوع"
     },
     "order": {
-      "default": "Default",
+      "default": "پیش‌فرض",
       "uploadSpeed": "سرعت بارگذاری",
       "downloadSpeed": "سرعت دانلود"
     },
     "actions": {
-      "active": "Active",
-      "closed": "Closed",
+      "active": "فعال",
+      "closed": "بسته‌شده",
       "closeConnection": "بستن اتصال"
     },
     "columnManager": {
       "title": "ستون‌ها",
-      "dragHandle": "Drag handle"
+      "dragHandle": "دستگیره جابجایی"
     }
   }
 }

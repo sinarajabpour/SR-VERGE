@@ -21,6 +21,7 @@
     },
     "importForm": {
       "placeholder": "プロファイルファイルのURL",
+      "uriProfileName": "Imported Nodes",
       "actions": {
         "paste": "貼り付け"
       }

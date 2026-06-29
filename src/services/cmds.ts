@@ -59,6 +59,14 @@ export async function importProfile(url: string, option?: IProfileOption) {
   })
 }
 
+/**
+ * Convert one or more raw proxy URIs (vless://, vmess://, trojan://, ss://, …)
+ * into a Clash Meta YAML string, without a subscription link.
+ */
+export async function convertProxyUri(uri: string) {
+  return invoke<string>('convert_proxy_uri', { uri })
+}
+
 export async function reorderProfile(activeId: string, overId: string) {
   return invoke<void>('reorder_profile', {
     activeId,

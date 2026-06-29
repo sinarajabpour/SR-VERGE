@@ -62,14 +62,14 @@
         "secretRequired": "راز نمی‌تواند خالی باشد",
         "copyFailed": "کپی نشد",
         "controllerCopied": "آدرس کنترلر در کلیپ بورد کپی شد",
-        "secretCopied": "Secret copied to clipboard"
+        "secretCopied": "رمز در کلیپ‌بورد کپی شد"
       }
     },
     "externalCors": {
-      "title": "External Cors Configuration",
+      "title": "پیکربندی CORS خارجی",
       "fields": {
-        "allowPrivateNetwork": "Allow private network access",
-        "allowedOrigins": "Allowed Origins"
+        "allowPrivateNetwork": "اجازه دسترسی به شبکه خصوصی",
+        "allowedOrigins": "مبداهای مجاز"
       },
       "placeholders": {
         "origin": "لطفا یک url معتبر وارد کنید"
@@ -78,16 +78,16 @@
         "add": "افزودن"
       },
       "messages": {
-        "alwaysIncluded": "Always included origins: {{urls}}"
+        "alwaysIncluded": "مبداهای همیشه مجاز: {{urls}}"
       },
       "tooltips": {
-        "open": "External Cors Settings"
+        "open": "تنظیمات CORS خارجی"
       }
     },
     "appearance": {
-      "light": "Light",
-      "dark": "Dark",
-      "system": "System"
+      "light": "روشن",
+      "dark": "تیره",
+      "system": "سیستم"
     },
     "clash": {
       "title": "تنظیمات Clash",
@@ -137,11 +137,11 @@
         },
         "options": {
           "logLevel": {
-            "debug": "Debug",
-            "info": "Info",
-            "warning": "Warn",
-            "error": "Error",
-            "silent": "Silent"
+            "debug": "اشکال‌زدایی",
+            "info": "اطلاعات",
+            "warning": "هشدار",
+            "error": "خطا",
+            "silent": "بی‌صدا"
           }
         }
       }
@@ -156,7 +156,7 @@
         },
         "trayOptions": {
           "showMainWindow": "نمایش پنجره اصلی",
-          "showTrayMenu": "Show Tray Menu",
+          "showTrayMenu": "نمایش منوی سینی",
           "disable": "غیرفعال کردن"
         },
         "fields": {
@@ -194,9 +194,9 @@
           "openLogsDir": "باز کردن پوشه لاگ‌ها",
           "checkUpdates": "بررسی برای به‌روزرسانی‌ها",
           "openDevTools": "باز کردن ابزارهای توسعه‌دهنده",
-          "liteModeSettings": "LightWeight Mode Settings",
+          "liteModeSettings": "تنظیمات حالت سبک",
           "exit": "خروج",
-          "exportDiagnostics": "Export Diagnostic Info",
+          "exportDiagnostics": "خروجی اطلاعات عیب‌یابی",
           "vergeVersion": "نسخه Verge"
         }
       },
@@ -215,37 +215,37 @@
           "cssInjection": "تزریق CSS"
         },
         "actions": {
-          "editCss": "Edit CSS"
+          "editCss": "ویرایش CSS"
         },
         "dialogs": {
-          "editCssTitle": "Edit CSS"
+          "editCssTitle": "ویرایش CSS"
         }
       },
       "layout": {
         "title": "تنظیمات چیدمان",
         "fields": {
-          "preferSystemTitlebar": "Prefer System Titlebar",
+          "preferSystemTitlebar": "ترجیح نوار عنوان سیستم",
           "trafficGraph": "نمودار ترافیک",
           "memoryUsage": "استفاده از حافظه",
           "proxyGroupIcon": "آیکون گروه پراکسی",
-          "toastPosition": "Toast Position",
-          "hoverNavigator": "Hover Jump Navigator",
-          "hoverNavigatorDelay": "Hover Jump Navigator Delay",
+          "toastPosition": "موقعیت اعلان",
+          "hoverNavigator": "ناوبر پرش با اشاره‌گر",
+          "hoverNavigatorDelay": "تأخیر ناوبر پرش با اشاره‌گر",
           "navIcon": "آیکون ناوبری",
           "collapseNavBar": "جمع کردن نوار ناوبری",
           "trayIcon": "آیکون سینی سیستم",
-          "proxyGroupsDisplayMode": "Proxy Groups Display Mode",
-          "showOutboundModesInline": "Show Outbound Modes Inline",
+          "proxyGroupsDisplayMode": "حالت نمایش گروه‌های پروکسی",
+          "showOutboundModesInline": "نمایش حالت‌های خروجی به‌صورت درون‌خطی",
           "commonTrayIcon": "آیکون مشترک سینی سیستم",
           "systemProxyTrayIcon": "آیکون سینی پراکسی سیستم",
           "tunTrayIcon": "آیکون سینی Tun",
-          "enableTrayIcon": "Enable Tray Icon",
+          "enableTrayIcon": "فعال‌سازی آیکون سینی",
           "enableTraySpeed": "فعال کردن سرعت ترای",
           "pauseRenderTrafficStatsOnBlur": "توقف رندر آمار ترافیک هنگام از دست رفتن فوکوس"
         },
         "tooltips": {
-          "hoverNavigator": "Automatically scroll to the corresponding proxy group when hovering over alphabet letters",
-          "hoverNavigatorDelay": "Delay before auto scrolling when hovering, in milliseconds"
+          "hoverNavigator": "هنگام قرار گرفتن اشاره‌گر روی حروف الفبا، به‌طور خودکار به گروه پروکسی مربوطه پیمایش می‌شود",
+          "hoverNavigatorDelay": "تأخیر پیش از پیمایش خودکار هنگام اشاره، بر حسب میلی‌ثانیه"
         },
         "options": {
           "icon": {
@@ -254,15 +254,15 @@
             "disable": "غیرفعال کردن"
           },
           "toastPosition": {
-            "topLeft": "Top Left",
-            "topRight": "Top Right",
-            "bottomLeft": "Bottom Left",
-            "bottomRight": "Bottom Right"
+            "topLeft": "بالا چپ",
+            "topRight": "بالا راست",
+            "bottomLeft": "پایین چپ",
+            "bottomRight": "پایین راست"
           },
           "proxyGroupsDisplayMode": {
-            "default": "Default",
-            "inline": "Inline",
-            "disable": "Disable"
+            "default": "پیش‌فرض",
+            "inline": "درون‌خطی",
+            "disable": "غیرفعال"
           }
         }
       }
@@ -282,9 +282,9 @@
         "random": "پورت تصادفی"
       },
       "messages": {
-        "portInUse": "Port {{port}} is already in use",
-        "saved": "Port settings saved",
-        "saveFailed": "Failed to save port settings"
+        "portInUse": "پورت {{port}} از قبل در حال استفاده است",
+        "saved": "تنظیمات پورت ذخیره شد",
+        "saveFailed": "ذخیره تنظیمات پورت ناموفق بود"
       }
     },
     "clashCore": {
@@ -294,12 +294,12 @@
       }
     },
     "liteMode": {
-      "title": "LightWeight Mode Settings",
+      "title": "تنظیمات حالت سبک",
       "actions": {
-        "enterNow": "Enter LightWeight Mode Now"
+        "enterNow": "اکنون وارد حالت سبک شوید"
       },
       "toggles": {
-        "autoEnter": "Auto Enter LightWeight Mode"
+        "autoEnter": "ورود خودکار به حالت سبک"
       },
       "tooltips": {
         "autoEnter": "فعال کردن حالت LightWeight به صورت خودکار پس از بسته شدن پنجره برای مدت زمانی خاص"
@@ -314,24 +314,24 @@
     "backup": {
       "title": "تنظیمات پشتیبان گیری",
       "tabs": {
-        "local": "Local backup",
-        "webdav": "WebDAV backup"
+        "local": "پشتیبان محلی",
+        "webdav": "پشتیبان WebDAV"
       },
       "actions": {
-        "selectTarget": "Select backup target",
+        "selectTarget": "انتخاب مقصد پشتیبان",
         "backup": "پشتیبان‌گیری",
-        "export": "Export",
-        "exportBackup": "Export Backup",
-        "importBackup": "Import Backup",
+        "export": "خروجی",
+        "exportBackup": "خروجی پشتیبان",
+        "importBackup": "وارد کردن پشتیبان",
         "deleteBackup": "حذف پشتیبان",
         "restore": "بازیابی",
         "restoreBackup": "بازیابی پشتیبان",
-        "viewHistory": "View history"
+        "viewHistory": "مشاهده تاریخچه"
       },
       "fields": {
         "webdavUrl": "http(s):// URL سرور WebDAV",
         "username": "نام کاربری",
-        "info": "Backups are stored locally in the application data directory. Use the list below to restore or delete backups."
+        "info": "پشتیبان‌ها به‌صورت محلی در پوشه داده‌های برنامه ذخیره می‌شوند. از فهرست زیر برای بازیابی یا حذف پشتیبان‌ها استفاده کنید."
       },
       "messages": {
         "webdavUrlRequired": "آدرس WebDAV نمی‌تواند خالی باشد",
@@ -342,28 +342,28 @@
         "webdavConfigSaveFailed": "خطا در ذخیره تنظیمات WebDAV: {{error}}",
         "backupCreated": "پشتیبان‌گیری با موفقیت ایجاد شد",
         "backupFailed": "خطا در پشتیبان‌گیری: {{error}}",
-        "localBackupCreated": "Local backup created successfully",
-        "localBackupFailed": "Local backup failed",
+        "localBackupCreated": "پشتیبان محلی با موفقیت ایجاد شد",
+        "localBackupFailed": "ایجاد پشتیبان محلی ناموفق بود",
         "restoreSuccess": "بازیابی با موفقیت انجام شد، برنامه در 1 ثانیه راه‌اندازی مجدد می‌شود",
-        "localBackupExported": "Local backup exported successfully",
-        "localBackupExportFailed": "Failed to export local backup",
-        "localBackupImported": "Local backup imported successfully",
-        "localBackupImportFailed": "Failed to import local backup: {{error}}",
-        "webdavRefreshSuccess": "WebDAV refresh succeeded",
-        "webdavRefreshFailed": "WebDAV refresh failed: {{error}}",
+        "localBackupExported": "پشتیبان محلی با موفقیت خروجی گرفته شد",
+        "localBackupExportFailed": "خروجی گرفتن پشتیبان محلی ناموفق بود",
+        "localBackupImported": "پشتیبان محلی با موفقیت وارد شد",
+        "localBackupImportFailed": "وارد کردن پشتیبان محلی ناموفق بود: {{error}}",
+        "webdavRefreshSuccess": "به‌روزرسانی WebDAV موفق بود",
+        "webdavRefreshFailed": "به‌روزرسانی WebDAV ناموفق بود: {{error}}",
         "confirmDelete": "آیا از حذف این فایل پشتیبان اطمینان دارید؟",
         "confirmRestore": "آیا از بازیابی این فایل پشتیبان اطمینان دارید؟"
       },
       "auto": {
-        "title": "Automatic backup",
-        "scheduleLabel": "Enable scheduled backup",
-        "scheduleHelper": "Create local backups in the background at the configured interval.",
-        "intervalLabel": "Backup frequency",
-        "changeLabel": "Backup on critical changes",
-        "changeHelper": "Automatically backup when Global Extend Config/Script changes.",
+        "title": "پشتیبان‌گیری خودکار",
+        "scheduleLabel": "فعال‌سازی پشتیبان‌گیری زمان‌بندی‌شده",
+        "scheduleHelper": "ایجاد پشتیبان محلی در پس‌زمینه با بازه زمانی تعیین‌شده.",
+        "intervalLabel": "تناوب پشتیبان‌گیری",
+        "changeLabel": "پشتیبان‌گیری هنگام تغییرات مهم",
+        "changeHelper": "پشتیبان‌گیری خودکار هنگام تغییر پیکربندی/اسکریپت توسعه سراسری.",
         "options": {
-          "hours": "Every {{n}} hours",
-          "days": "Every {{n}} days"
+          "hours": "هر {{n}} ساعت",
+          "days": "هر {{n}} روز"
         }
       },
       "manual": {
@@ -374,10 +374,10 @@
       },
       "history": {
         "title": "تاریخچه پشتیبان گیری",
-        "summary": "{{count}} backups • latest {{recent}}",
+        "summary": "{{count}} پشتیبان • آخرین {{recent}}",
         "empty": "هیچ نسخه پشتیبان در دسترس نیست",
-        "unknownPlatform": "unknown",
-        "unknownTime": "Unknown time"
+        "unknownPlatform": "نامشخص",
+        "unknownTime": "زمان نامشخص"
       },
       "webdav": {
         "title": "پیکربندی WebDAV"
@@ -387,15 +387,15 @@
         "backupTime": "زمان پشتیبان‌گیری",
         "actions": "عملیات",
         "noBackups": "هیچ پشتیبانی موجود نیست",
-        "rowsPerPage": "Rows per page"
+        "rowsPerPage": "ردیف در هر صفحه"
       }
     },
     "misc": {
       "title": "متفرقه",
       "fields": {
         "appLogLevel": "سطح لاگ برنامه",
-        "appLogMaxSize": "App Log Max Size",
-        "appLogMaxCount": "App Log Max Count",
+        "appLogMaxSize": "حداکثر اندازه گزارش برنامه",
+        "appLogMaxCount": "حداکثر تعداد گزارش برنامه",
         "autoCloseConnections": "بستن خودکار اتصالات",
         "autoCheckUpdate": "بررسی خودکار به‌روزرسانی",
         "enableBuiltinEnhanced": "فعال کردن تقویت داخلی",
@@ -423,7 +423,7 @@
       }
     },
     "update": {
-      "title": "New Version v{{version}}",
+      "title": "نسخه جدید v{{version}}",
       "actions": {
         "goToRelease": "رفتن به صفحه انتشار",
         "update": "به‌روزرسانی"
@@ -441,7 +441,7 @@
       "fields": {
         "enableStatus": "وضعیت فعال",
         "serverAddr": "آدرس سرور: ",
-        "pacUrl": "PAC URL: ",
+        "pacUrl": "آدرس PAC: ",
         "proxyHost": "میزبان پراکسی",
         "usePacMode": "استفاده از حالت PAC",
         "proxyGuard": "محافظ پراکسی",
@@ -468,14 +468,14 @@
       "title": "Tun (کارت شبکه مجازی)",
       "fields": {
         "stack": "انباشته Tun",
-        "device": "Device Name",
+        "device": "نام دستگاه",
         "autoRoute": "مسیر خودکار",
         "routeExcludeAddress": "نشانی‌های مستثنا از مسیردهی",
         "strictRoute": "مسیر دقیق",
         "autoDetectInterface": "تشخیص خودکار رابط",
         "dnsHijack": "ربایش DNS",
         "mtu": "واحد حداکثر انتقال",
-        "autoRedirect": "Auto Redirect"
+        "autoRedirect": "هدایت خودکار"
       },
       "tooltips": {
         "dnsHijack": "لطفا برای جدا کردن چندین سرور DNS از , استفاده کنید.",
@@ -494,75 +494,75 @@
       },
       "sections": {
         "general": "تنظیمات DNS",
-        "fallbackFilter": "Fallback Filter Settings",
-        "hosts": "Hosts Settings"
+        "fallbackFilter": "تنظیمات فیلتر بازگشتی",
+        "hosts": "تنظیمات Hosts"
       },
       "fields": {
-        "enable": "Enable DNS",
-        "listen": "DNS Listen",
-        "enhancedMode": "Enhanced Mode",
-        "fakeIpRange": "Fake IP Range",
-        "fakeIpFilterMode": "Fake IP Filter Mode",
+        "enable": "فعال‌سازی DNS",
+        "listen": "شنود DNS",
+        "enhancedMode": "حالت پیشرفته",
+        "fakeIpRange": "محدوده Fake IP",
+        "fakeIpFilterMode": "حالت فیلتر Fake IP",
         "ipv6": {
           "label": "IPv6",
-          "description": "Enable IPv6 DNS resolution"
+          "description": "فعال‌سازی resolve آدرس IPv6 در DNS"
         },
         "preferH3": {
-          "label": "Prefer H3",
-          "description": "DNS DOH uses HTTP/3"
+          "label": "ترجیح H3",
+          "description": "DNS DOH از HTTP/3 استفاده می‌کند"
         },
         "respectRules": {
-          "label": "Respect Rules",
+          "label": "رعایت قوانین",
           "description": "اتصالات DNS از قوانین مسیریابی پیروی می‌کنند"
         },
         "useHosts": {
-          "label": "Use Hosts",
-          "description": "Enable to resolve hosts through hosts file"
+          "label": "استفاده از Hosts",
+          "description": "فعال‌سازی resolve میزبان‌ها از طریق فایل hosts"
         },
         "useSystemHosts": {
-          "label": "Use System Hosts",
-          "description": "Enable to resolve hosts through system hosts file"
+          "label": "استفاده از Hosts سیستم",
+          "description": "فعال‌سازی resolve میزبان‌ها از طریق فایل hosts سیستم"
         },
         "directPolicy": {
-          "label": "Direct Nameserver Follow Policy",
-          "description": "Whether to follow nameserver policy"
+          "label": "پیروی Nameserver مستقیم از سیاست",
+          "description": "اینکه آیا از سیاست nameserver پیروی شود"
         },
         "defaultNameserver": {
-          "label": "Default Nameserver",
-          "description": "Default DNS servers used to resolve DNS servers"
+          "label": "Nameserver پیش‌فرض",
+          "description": "سرورهای DNS پیش‌فرض برای resolve کردن سرورهای DNS"
         },
         "nameserver": {
           "label": "Nameserver",
           "description": "فهرست سرورهای DNS، جدا شده با کاما"
         },
         "fallback": {
-          "label": "Fallback",
+          "label": "بازگشتی",
           "description": "فهرست سرورهای DNS جایگزین، جدا شده با کاما"
         },
         "proxy": {
-          "label": "Proxy Server Nameserver",
-          "description": "DNS servers for proxy node domain resolution"
+          "label": "Nameserver سرور پروکسی",
+          "description": "سرورهای DNS برای resolve دامنه گره پروکسی"
         },
         "directNameserver": {
-          "label": "Direct Nameserver",
-          "description": "DNS servers for direct exit domain resolution, supports 'system' keyword, comma separated"
+          "label": "Nameserver مستقیم",
+          "description": "سرورهای DNS برای resolve دامنه خروجی مستقیم، از کلیدواژه «system» پشتیبانی می‌کند، جدا شده با کاما"
         },
         "fakeIpFilter": {
-          "label": "Fake IP Filter",
-          "description": "Domains that skip fake IP resolution, comma separated"
+          "label": "فیلتر Fake IP",
+          "description": "دامنه‌هایی که از resolve با Fake IP صرف‌نظر می‌کنند، جدا شده با کاما"
         },
         "nameserverPolicy": {
-          "label": "Nameserver Policy",
-          "description": "Domain-specific DNS server, multiple servers separated by semicolons, format: domain=server1;server2"
+          "label": "سیاست Nameserver",
+          "description": "سرور DNS مخصوص دامنه، چند سرور با نقطه‌ویرگول جدا می‌شوند، قالب: domain=server1;server2"
         },
         "geoipFiltering": {
-          "label": "GeoIP Filtering",
-          "description": "Enable GeoIP filtering for fallback"
+          "label": "فیلتر GeoIP",
+          "description": "فعال‌سازی فیلتر GeoIP برای بازگشتی"
         },
-        "geoipCode": "GeoIP Code",
+        "geoipCode": "کد GeoIP",
         "fallbackIpCidr": {
-          "label": "Fallback IP CIDR",
-          "description": "IP CIDRs not using fallback servers, comma separated"
+          "label": "بازگشتی IP CIDR",
+          "description": "محدوده‌های IP CIDR که از سرورهای بازگشتی استفاده نمی‌کنند، جدا شده با کاما"
         },
         "fallbackDomain": {
           "label": "دامنه جایگزین",
@@ -603,7 +603,7 @@
         "openOrCloseDashboard": "باز/بستن داشبورد",
         "toggleSystemProxy": "فعال/غیرفعال کردن پراکسی سیستم",
         "toggleTunMode": "فعال/غیرفعال کردن حالت Tun",
-        "entryLightweightMode": "Entry Lightweight Mode",
+        "entryLightweightMode": "ورود به حالت سبک",
         "direct": "حالت مستقیم",
         "reactivateProfiles": "فعال‌سازی مجدد پروفایل‌ها"
       }
@@ -643,8 +643,8 @@
   },
   "statuses": {
     "clash": {
-      "stopping": "Stopping Core...",
-      "restarting": "Restarting Core..."
+      "stopping": "در حال توقف هسته...",
+      "restarting": "در حال راه‌اندازی مجدد هسته..."
     },
     "clashService": {
       "installing": "در حال نصب سرویس...",

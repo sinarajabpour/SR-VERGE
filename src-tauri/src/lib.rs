@@ -192,6 +192,7 @@ mod app_init {
             cmd::patch_profile,
             cmd::create_profile,
             cmd::import_profile,
+            cmd::convert_proxy_uri,
             cmd::reorder_profile,
             cmd::update_profile,
             cmd::delete_profile,
@@ -282,7 +283,7 @@ pub fn run() {
 
             #[cfg(target_os = "macos")]
             if let Some(window) = _app_handle.get_webview_window("main") {
-                let _ = window.set_title("Clash Verge");
+                let _ = window.set_title("SR Verge");
             }
         }
 

@@ -387,6 +387,7 @@ export interface TranslationResources {
             paste: string
           }
           placeholder: string
+          uriProfileName: string
         }
         title: string
       }

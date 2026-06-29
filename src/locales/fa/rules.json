@@ -13,11 +13,11 @@
   "feedback": {
     "notifications": {
       "provider": {
-        "updateSuccess": "{{name}} updated successfully",
-        "updateFailed": "Failed to update {{name}}: {{message}}",
-        "genericError": "Update failed: {{message}}",
-        "none": "No providers available to update",
-        "allUpdated": "All providers updated successfully"
+        "updateSuccess": "{{name}} با موفقیت به‌روزرسانی شد",
+        "updateFailed": "به‌روزرسانی {{name}} ناموفق بود: {{message}}",
+        "genericError": "به‌روزرسانی ناموفق بود: {{message}}",
+        "none": "هیچ ارائه‌دهنده‌ای برای به‌روزرسانی موجود نیست",
+        "allUpdated": "تمام ارائه‌دهندگان با موفقیت به‌روزرسانی شدند"
       }
     }
   },

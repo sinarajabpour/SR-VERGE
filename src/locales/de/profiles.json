@@ -21,6 +21,7 @@
     },
     "importForm": {
       "placeholder": "Abonnement-Datei-Link",
+      "uriProfileName": "Imported Nodes",
       "actions": {
         "paste": "Einfügen"
       }

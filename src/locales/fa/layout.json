@@ -2,22 +2,22 @@
   "components": {
     "navigation": {
       "tabs": {
-        "home": "Home",
+        "home": "خانه",
         "proxies": "پراکسی‌ها",
         "profiles": "پروفایل‌ها",
         "connections": "اتصالات",
         "rules": "قوانین",
         "logs": "لاگ‌ها",
-        "unlock": "Test",
+        "unlock": "تست",
         "settings": "تنظیمات"
       },
       "menu": {
-        "reorderMode": "Menu reorder mode",
-        "restoreDefaultOrder": "Restore default order",
-        "unlock": "Unlock menu order",
-        "lock": "Lock menu order",
-        "collapseNavBar": "Collapse navigation bar",
-        "expandNavBar": "Expand navigation bar"
+        "reorderMode": "حالت چینش منو",
+        "restoreDefaultOrder": "بازگردانی چینش پیش‌فرض",
+        "unlock": "باز کردن چینش منو",
+        "lock": "قفل کردن چینش منو",
+        "collapseNavBar": "جمع کردن نوار ناوبری",
+        "expandNavBar": "باز کردن نوار ناوبری"
       }
     }
   }

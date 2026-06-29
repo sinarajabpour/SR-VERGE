@@ -68,7 +68,7 @@ ${css}
 export const useCustomTheme = () => {
   const appWindow: WebviewWindow = useMemo(() => getCurrentWebviewWindow(), [])
   const { verge } = useVerge()
-  const { theme_mode, theme_setting } = verge ?? {}
+  const { theme_mode, theme_setting, language } = verge ?? {}
   const mode = useThemeMode()
   const setMode = useSetThemeMode()
   const userBackgroundImage = theme_setting?.background_image || ''
@@ -146,6 +146,16 @@ export const useCustomTheme = () => {
     const dt = mode === 'light' ? defaultTheme : defaultDarkTheme
     let muiTheme: MuiTheme
 
+    // For the Persian UI, make Vazirmatn the primary font (it covers Latin too),
+    // while keeping the user's custom font / default stack as fallback.
+    const baseFontFamily = setting.font_family
+      ? `${setting.font_family}, ${dt.font_family}`
+      : dt.font_family
+    const isPersian = (language ?? '').toLowerCase().startsWith('fa')
+    const fontFamily = isPersian
+      ? `'Vazirmatn', ${baseFontFamily}`
+      : baseFontFamily
+
     try {
       muiTheme = createTheme({
         breakpoints: {
@@ -170,9 +180,7 @@ export const useCustomTheme = () => {
         },
         shadows: Array(25).fill('none') as Shadows,
         typography: {
-          fontFamily: setting.font_family
-            ? `${setting.font_family}, ${dt.font_family}`
-            : dt.font_family,
+          fontFamily,
         },
       })
     } catch (e) {
@@ -195,7 +203,7 @@ export const useCustomTheme = () => {
             default: dt.background_color,
           },
         },
-        typography: { fontFamily: dt.font_family },
+        typography: { fontFamily },
       })
     }
 
@@ -310,7 +318,7 @@ export const useCustomTheme = () => {
     }
 
     return muiTheme
-  }, [mode, theme_setting, userBackgroundImage, hasUserBackground])
+  }, [mode, theme_setting, userBackgroundImage, hasUserBackground, language])
 
   useEffect(() => {
     const id = setTimeout(() => {

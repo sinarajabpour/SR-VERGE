@@ -54,6 +54,7 @@ import { useListen } from '@/hooks/use-listen'
 import { useProfiles } from '@/hooks/use-profiles'
 import {
   calcuProxies,
+  convertProxyUri,
   createProfile,
   deleteProfile,
   enhanceProfiles,
@@ -288,8 +289,46 @@ const ProfilePage = () => {
     return [...new Set([profiles.current ?? ''])].filter(Boolean)
   }
 
+  // raw proxy URI schemes that can be imported directly (no subscription link)
+  const PROXY_URI_RE = /^(vmess|vless|trojan|ss|ssr|hysteria2|hy2|tuic):\/\//i
+
   const onImport = async () => {
     if (!url) return
+
+    const trimmed = url.trim()
+
+    const handleImportSuccess = async (noticeKey: string) => {
+      showNotice.success(noticeKey)
+      setUrl('')
+      await performRobustRefresh()
+    }
+
+    // direct single/multi proxy-URI import (no subscription link)
+    if (PROXY_URI_RE.test(trimmed)) {
+      setLoading(true)
+      try {
+        const yaml = await convertProxyUri(trimmed)
+        const item = {
+          type: 'local',
+          name: t('profiles.page.importForm.uriProfileName'),
+          desc: '',
+          url: '',
+          option: {
+            with_proxy: false,
+            self_proxy: false,
+          },
+        } as IProfileItem
+        await createProfile(item, yaml)
+        await handleImportSuccess('shared.feedback.notifications.importSuccess')
+      } catch (err) {
+        showNotice.error(String(err))
+      } finally {
+        setDisabled(false)
+        setLoading(false)
+      }
+      return
+    }
+
     // 校验url是否为http/https
     if (!/^https?:\/\//i.test(url)) {
       showNotice.error('profiles.page.feedback.errors.invalidUrl')
@@ -297,11 +336,6 @@ const ProfilePage = () => {
     }
     setLoading(true)
 
-    const handleImportSuccess = async (noticeKey: string) => {
-      showNotice.success(noticeKey)
-      setUrl('')
-      await performRobustRefresh()
-    }
     try {
       // 尝试正常导入
       await importProfile(url)

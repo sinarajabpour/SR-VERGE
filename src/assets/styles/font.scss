@@ -2,3 +2,35 @@
   font-family: 'twemoji mozilla';
   src: url('../fonts/Twemoji.Mozilla.ttf');
 }
+
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/vazirmatn/Vazirmatn-Regular.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('../fonts/vazirmatn/Vazirmatn-Medium.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/vazirmatn/Vazirmatn-Bold.woff2') format('woff2');
+}
+
+/* Apply Vazirmatn to plain (non-MUI) elements when the UI is in Persian.
+   MUI components get Vazirmatn via the theme fontFamily (see use-custom-theme). */
+html[lang='fa'] body {
+  font-family:
+    'Vazirmatn', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto',
+    sans-serif;
+}

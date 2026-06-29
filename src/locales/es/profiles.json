@@ -21,6 +21,7 @@
     },
     "importForm": {
       "placeholder": "Enlace del archivo de suscripción",
+      "uriProfileName": "Imported Nodes",
       "actions": {
         "paste": "Pegar"
       }

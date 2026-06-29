@@ -137,6 +137,14 @@ i18n.use(initReactI18next).init({
   },
 })
 
+// Sets the document `lang` so language-scoped CSS (e.g. the Persian Vazirmatn
+// font in font.scss) applies. Layout direction is intentionally left unchanged
+// to avoid altering the existing LTR layout.
+const applyDocumentLanguage = (language: string) => {
+  if (typeof document === 'undefined') return
+  document.documentElement.lang = language
+}
+
 export const changeLanguage = async (language: string) => {
   const targetLanguage = resolveLanguage(language)
 
@@ -147,6 +155,7 @@ export const changeLanguage = async (language: string) => {
 
   await i18n.changeLanguage(targetLanguage)
   cacheLanguage(targetLanguage)
+  applyDocumentLanguage(targetLanguage)
 }
 
 export const initializeLanguage = async (

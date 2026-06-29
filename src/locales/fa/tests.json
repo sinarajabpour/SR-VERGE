@@ -25,29 +25,29 @@
   },
   "statuses": {
     "test": {
-      "pending": "Pending",
-      "yes": "Yes",
-      "no": "No",
-      "failed": "Failed",
-      "completed": "Completed",
-      "disallowedIsp": "Disallowed ISP",
-      "originalsOnly": "Originals Only",
-      "noDisney": "No (IP Banned By Disney+)",
-      "unsupportedRegion": "Unsupported Country/Region",
-      "failedNetwork": "Failed (Network Connection)"
+      "pending": "در انتظار",
+      "yes": "بله",
+      "no": "خیر",
+      "failed": "ناموفق",
+      "completed": "تکمیل‌شده",
+      "disallowedIsp": "ISP غیرمجاز",
+      "originalsOnly": "فقط محتوای اوریجینال",
+      "noDisney": "خیر (IP توسط Disney+ مسدود شده)",
+      "unsupportedRegion": "کشور/منطقه پشتیبانی‌نشده",
+      "failedNetwork": "ناموفق (اتصال شبکه)"
     }
   },
   "unlock": {
     "page": {
       "actions": {
-        "testing": "Testing..."
+        "testing": "در حال تست..."
       },
-      "empty": "No unlock test items",
+      "empty": "هیچ مورد تست رفع انسدادی وجود ندارد",
       "messages": {
         "detectionFailedWithName": "تشخیص برای {{name}} ناموفق بود",
-        "detectionTimeout": "Detection timeout or failed"
+        "detectionTimeout": "تشخیص با مهلت زمانی یا خطا مواجه شد"
       },
-      "title": "Unlock Test"
+      "title": "تست رفع انسداد"
     }
   }
 }

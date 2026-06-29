@@ -106,6 +106,19 @@ pub async fn import_profile(url: std::string::String, option: Option<PrfOption>)
     Ok(())
 }
 
+/// Convert one or more raw proxy URIs (vless://, vmess://, trojan://, ss://, …)
+/// into a Clash Meta YAML string, without needing a subscription link.
+/// Accepts a single URI or several newline-separated URIs (and Base64 blobs).
+/// The frontend pairs this with `create_profile` to store it as a local profile.
+#[tauri::command]
+pub async fn convert_proxy_uri(uri: String) -> CmdResult<String> {
+    match crate::utils::proxy_parser::try_convert_txt_to_yaml(&uri) {
+        Ok(Some(yaml)) => Ok(yaml.into()),
+        Ok(None) => Err("input is not a recognized proxy URI".into()),
+        Err(e) => Err(format!("failed to parse proxy uri: {e}").into()),
+    }
+}
+
 /// 调整profile的顺序
 #[tauri::command]
 pub async fn reorder_profile(active_id: String, over_id: String) -> CmdResult {

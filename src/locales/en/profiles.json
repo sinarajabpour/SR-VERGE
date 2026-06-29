@@ -20,14 +20,15 @@
       "title": "Batch Operations"
     },
     "importForm": {
-      "placeholder": "Profile URL",
+      "placeholder": "Subscription URL, or paste a vless:// / vmess:// / ... link",
+      "uriProfileName": "Imported Nodes",
       "actions": {
         "paste": "Paste"
       }
     },
     "feedback": {
       "errors": {
-        "invalidUrl": "Invalid profile URL. Please enter a URL starting with http:// or https://",
+        "invalidUrl": "Invalid profile URL. Please enter a URL starting with http:// or https:// (Clash YAML and Base64 .txt subscriptions are supported)",
         "onlyYaml": "Only YAML Files Supported"
       },
       "notifications": {

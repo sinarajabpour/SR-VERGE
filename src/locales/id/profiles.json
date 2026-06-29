@@ -21,6 +21,7 @@
     },
     "importForm": {
       "placeholder": "URL Profil",
+      "uriProfileName": "Imported Nodes",
       "actions": {
         "paste": "Tempel"
       }

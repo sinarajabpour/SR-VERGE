@@ -1,16 +1,16 @@
 {
   "page": {
     "modes": {
-      "rule": "Rule",
-      "global": "Global",
-      "direct": "Direct"
+      "rule": "قانون",
+      "global": "سراسری",
+      "direct": "مستقیم"
     },
     "actions": {
       "toggleChain": "پراکسی زنجیره‌ای",
-      "connect": "Connect",
-      "disconnect": "Disconnect",
-      "connecting": "Connecting...",
-      "clearChainConfig": "Delete Chain Config"
+      "connect": "اتصال",
+      "disconnect": "قطع اتصال",
+      "connecting": "در حال اتصال...",
+      "clearChainConfig": "حذف پیکربندی زنجیره"
     },
     "provider": {
       "title": "تأمین‌کننده پروکسی",
@@ -20,11 +20,11 @@
       }
     },
     "rules": {
-      "title": "Proxy Rules",
-      "select": "Select Rules"
+      "title": "قوانین پروکسی",
+      "select": "انتخاب قوانین"
     },
     "labels": {
-      "proxyCount": "Proxy Count",
+      "proxyCount": "تعداد پروکسی",
       "delayCheckReset": "بررسی تأخیر برای لغو ثابت"
     },
     "tooltips": {
@@ -42,15 +42,15 @@
       "delayCheckUrl": "آدرس بررسی تأخیر"
     },
     "chain": {
-      "header": "Chain Proxy Config",
-      "warning": "Chain proxy will significantly reduce network speed. If you do not have a clear business need, or do not understand this configuration, keep it disabled.",
-      "empty": "Chain proxy will significantly reduce network speed. If you do not have a clear business need, or do not understand this configuration, keep it disabled.",
-      "instruction": "Click nodes in order to add to proxy chain",
-      "minimumNodes": "Chain proxy requires at least 2 nodes",
-      "minimumNodesHint": "Chain proxy requires at least 2 nodes. Please add one more node.",
-      "connectFailed": "Failed to connect to proxy chain",
-      "disconnectFailed": "Failed to disconnect from proxy chain",
-      "duplicateNode": "Proxy node already exists in chain",
+      "header": "پیکربندی زنجیره پروکسی",
+      "warning": "زنجیره پروکسی سرعت شبکه را به‌طور قابل توجهی کاهش می‌دهد. اگر نیاز مشخصی ندارید یا این پیکربندی را نمی‌شناسید، آن را غیرفعال نگه دارید.",
+      "empty": "زنجیره پروکسی سرعت شبکه را به‌طور قابل توجهی کاهش می‌دهد. اگر نیاز مشخصی ندارید یا این پیکربندی را نمی‌شناسید، آن را غیرفعال نگه دارید.",
+      "instruction": "برای افزودن به زنجیره پروکسی، گره‌ها را به ترتیب کلیک کنید",
+      "minimumNodes": "زنجیره پروکسی به حداقل ۲ گره نیاز دارد",
+      "minimumNodesHint": "زنجیره پروکسی به حداقل ۲ گره نیاز دارد. لطفاً یک گره دیگر اضافه کنید.",
+      "connectFailed": "اتصال به زنجیره پروکسی ناموفق بود",
+      "disconnectFailed": "قطع اتصال از زنجیره پروکسی ناموفق بود",
+      "duplicateNode": "گره پروکسی از قبل در زنجیره وجود دارد",
       "entryNode": "ورودی",
       "exitNode": "خروجی"
     },
@@ -59,17 +59,17 @@
     },
     "title": {
       "default": "گروه‌های پراکسی",
-      "chainMode": "Proxy Chain Mode"
+      "chainMode": "حالت زنجیره پروکسی"
     }
   },
   "feedback": {
     "notifications": {
       "provider": {
-        "updateSuccess": "{{name}} updated successfully",
-        "updateFailed": "Failed to update {{name}}: {{message}}",
-        "genericError": "Update failed: {{message}}",
-        "none": "No providers available to update",
-        "allUpdated": "All providers updated successfully"
+        "updateSuccess": "{{name}} با موفقیت به‌روزرسانی شد",
+        "updateFailed": "به‌روزرسانی {{name}} ناموفق بود: {{message}}",
+        "genericError": "به‌روزرسانی ناموفق بود: {{message}}",
+        "none": "هیچ ارائه‌دهنده‌ای برای به‌روزرسانی موجود نیست",
+        "allUpdated": "تمام ارائه‌دهندگان با موفقیت به‌روزرسانی شدند"
       }
     }
   },

@@ -21,6 +21,7 @@
     },
     "importForm": {
       "placeholder": "رابط الملف الشخصي",
+      "uriProfileName": "Imported Nodes",
       "actions": {
         "paste": "لصق"
       }

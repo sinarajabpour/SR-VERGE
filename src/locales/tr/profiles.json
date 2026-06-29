@@ -21,6 +21,7 @@
     },
     "importForm": {
       "placeholder": "Profil URL'si",
+      "uriProfileName": "Imported Nodes",
       "actions": {
         "paste": "Yapıştır"
       }

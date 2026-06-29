@@ -3,7 +3,7 @@
     "title": "لاگ‌ها"
   },
   "actions": {
-    "showDescending": "Newest first",
-    "showAscending": "Oldest first"
+    "showDescending": "جدیدترین ابتدا",
+    "showAscending": "قدیمی‌ترین ابتدا"
   }
 }

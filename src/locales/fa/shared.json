@@ -12,22 +12,22 @@
     "restart": "راه‌اندازی مجدد",
     "resetToDefault": "بازنشانی به پیش‌فرض",
     "refresh": "بازنشانی",
-    "retry": "Retry",
-    "refreshPage": "Refresh Page",
-    "showDetails": "Show Details",
-    "hideDetails": "Hide Details",
+    "retry": "تلاش مجدد",
+    "refreshPage": "به‌روزرسانی صفحه",
+    "showDetails": "نمایش جزئیات",
+    "hideDetails": "پنهان کردن جزئیات",
     "listView": "نمای لیستی",
     "tableView": "نمای جدولی",
     "pause": "توقف",
     "resume": "از سرگیری",
     "closeAll": "بستن همه",
     "clear": "پاک کردن",
-    "previous": "Previous",
-    "next": "Next"
+    "previous": "قبلی",
+    "next": "بعدی"
   },
   "labels": {
     "updateAt": "به‌روزرسانی در",
-    "timeout": "Timeout",
+    "timeout": "مهلت زمانی",
     "icon": "آیکون",
     "name": "نام",
     "readOnly": "فقط خواندنی",
@@ -36,14 +36,14 @@
     "usedTotal": "استفاده‌شده / کل",
     "from": "از",
     "password": "رمز عبور",
-    "retryAttempts": "Retry attempts",
+    "retryAttempts": "تعداد تلاش مجدد",
     "downloaded": "دانلود شده",
     "uploaded": "بارگذاری شده"
   },
   "statuses": {
     "enabled": "توانایی فعال شد",
     "disabled": "غیرفعال شد",
-    "saving": "Saving...",
+    "saving": "در حال ذخیره...",
     "empty": "خالی خالی"
   },
   "units": {
@@ -51,8 +51,8 @@
     "seconds": "ثانیه‌ها",
     "minutes": "دقیقه",
     "hours": "ساعت",
-    "kilobytes": "KB",
-    "files": "Files"
+    "kilobytes": "کیلوبایت",
+    "files": "فایل"
   },
   "placeholders": {
     "resetInput": "پاک کردن فیلد ورودی",
@@ -62,7 +62,7 @@
     "useRegex": "استفاده از عبارت منظم"
   },
   "validation": {
-    "invalidRegex": "Invalid regular expression"
+    "invalidRegex": "عبارت باقاعده نامعتبر است"
   },
   "window": {
     "maximize": "بزرگ‌نمایی",
@@ -74,8 +74,8 @@
   },
   "feedback": {
     "errors": {
-      "trafficStats": "Traffic Statistics Error",
-      "trafficStatsDescription": "The traffic statistics component encountered an error and has been disabled to prevent crashes."
+      "trafficStats": "خطای آمار ترافیک",
+      "trafficStatsDescription": "بخش آمار ترافیک با خطا مواجه شد و برای جلوگیری از کرش غیرفعال شد."
     },
     "notices": {
       "raw": "{{message}}",
@@ -84,13 +84,13 @@
     "notifications": {
       "importSuccess": "پروفایل با موفقیت وارد شد",
       "importSubscriptionSuccess": "وارد کردن اشتراک با موفقیت انجام شد",
-      "importWithClashProxy": "Profile Imported with Clash proxy",
-      "updateAvailable": "Update Available",
-      "saved": "Saved successfully",
+      "importWithClashProxy": "پروفایل با پروکسی Clash وارد شد",
+      "updateAvailable": "به‌روزرسانی در دسترس است",
+      "saved": "با موفقیت ذخیره شد",
       "common": {
         "copySuccess": "کپی با موفقیت انجام شد",
-        "saveSuccess": "Configuration saved successfully",
-        "saveFailed": "Failed to save configuration",
+        "saveSuccess": "پیکربندی با موفقیت ذخیره شد",
+        "saveFailed": "ذخیره پیکربندی ناموفق بود",
         "refreshFailed": "به‌روزرسانی ناموفق بود"
       }
     },
@@ -108,23 +108,23 @@
         "fileError": "خطای فایل اسکریپت، تغییرات برگشت داده شد"
       },
       "yaml": {
-        "syntaxError": "YAML syntax error, changes reverted",
-        "readError": "YAML read error, changes reverted",
-        "mappingError": "YAML mapping error, changes reverted",
-        "keyError": "YAML key error, changes reverted",
-        "generalError": "YAML error, changes reverted"
+        "syntaxError": "خطای نحوی YAML، تغییرات بازگردانده شد",
+        "readError": "خطای خواندن YAML، تغییرات بازگردانده شد",
+        "mappingError": "خطای نگاشت YAML، تغییرات بازگردانده شد",
+        "keyError": "خطای کلید YAML، تغییرات بازگردانده شد",
+        "generalError": "خطای YAML، تغییرات بازگردانده شد"
       },
       "merge": {
-        "syntaxError": "Merge file syntax error, changes reverted",
-        "mappingError": "Merge file mapping error, changes reverted",
-        "keyError": "Merge file key error, changes reverted",
-        "generalError": "Merge file error, changes reverted"
+        "syntaxError": "خطای نحوی فایل ادغام، تغییرات بازگردانده شد",
+        "mappingError": "خطای نگاشت فایل ادغام، تغییرات بازگردانده شد",
+        "keyError": "خطای کلید فایل ادغام، تغییرات بازگردانده شد",
+        "generalError": "خطای فایل ادغام، تغییرات بازگردانده شد"
       }
     }
   },
   "filters": {
     "logLevels": {
-      "all": "ALL",
+      "all": "همه",
       "debug": "DEBUG",
       "info": "INFO",
       "warn": "WARN",

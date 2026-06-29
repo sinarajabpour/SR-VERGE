@@ -384,6 +384,11 @@ impl PrfItem {
         // process the charset "UTF-8 with BOM"
         let data = data.trim_start_matches('\u{feff}');
 
+        // Convert .txt (Base64 proxy-URI) subscriptions to Clash YAML and
+        // deduplicate proxy names so mihomo accepts the config.
+        let normalized = crate::utils::proxy_parser::normalize_subscription(data);
+        let data = normalized.as_str();
+
         // check the data whether the valid yaml format
         let yaml = serde_yaml_ng::from_str::<Mapping>(data).context("the remote profile data is invalid yaml")?;
 

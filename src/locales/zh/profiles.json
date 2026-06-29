@@ -21,6 +21,7 @@
     },
     "importForm": {
       "placeholder": "订阅文件链接",
+      "uriProfileName": "Imported Nodes",
       "actions": {
         "paste": "粘贴"
       }
