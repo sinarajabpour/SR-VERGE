@@ -25,6 +25,12 @@ pub mod timing {
     pub const CONFIG_UPDATE_DEBOUNCE: Duration = Duration::from_millis(300);
     pub const STARTUP_ERROR_DELAY: Duration = Duration::from_secs(2);
 
+    /// Hard cap on how long the mihomo `-t` config-validation subprocess may
+    /// run. Without this, a hung validation (e.g. an orphaned core holding the
+    /// control pipe or TUN adapter) would keep the validation/config-update
+    /// locks held forever, freezing all config reloads and mode switches.
+    pub const VALIDATION_TIMEOUT: Duration = Duration::from_secs(20);
+
     #[cfg(target_os = "windows")]
     pub const SERVICE_WAIT_MAX: Duration = Duration::from_millis(3000);
     #[cfg(target_os = "windows")]

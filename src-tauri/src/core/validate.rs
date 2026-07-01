@@ -345,7 +345,22 @@ impl CoreConfigValidator {
                 .shell()
                 .sidecar(clash_core.as_str())?
                 .args(["-t", "-d", app_dir_str, "-f", config_path]);
-        let output = command.output().await?;
+        // Bound the subprocess: mihomo `-t` initializes proxy/rule providers,
+        // which can hang on network fetches when connectivity is down. Without a
+        // timeout the validation (and outer config-update) locks would stay held
+        // forever, freezing all reloads and proxy-mode switches.
+        let output = match tokio::time::timeout(crate::constants::timing::VALIDATION_TIMEOUT, command.output()).await {
+            Ok(result) => result?,
+            Err(_) => {
+                let error_msg: String = format!(
+                    "配置验证超时（超过 {} 秒），内核可能被卡住",
+                    crate::constants::timing::VALIDATION_TIMEOUT.as_secs()
+                )
+                .into();
+                logging!(warn, Type::Validate, "{}", error_msg);
+                return Ok(ValidationOutcome::invalid(ValidationErrorKind::Timeout, error_msg));
+            }
+        };
 
         let status = &output.status;
         let stderr = &output.stderr;
