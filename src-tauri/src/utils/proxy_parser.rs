@@ -946,23 +946,51 @@ fn build_clash_yaml(proxies: Vec<Mapping>) -> Result<String> {
     insert_str(&mut group, "url", "http://www.gstatic.com/generate_204");
     insert_val(&mut group, "interval", Value::Number(300u64.into()));
 
-    // Also a manual select group
+    // Manual select group. DIRECT is included so a rule (or the user) can send
+    // traffic outside the tunnel without needing a separate group.
     let mut select_group = Mapping::new();
     insert_str(&mut select_group, "name", "Manual");
     insert_str(&mut select_group, "type", "select");
     let mut manual_proxies = vec![Value::String("Subscription".to_owned())];
     manual_proxies.extend(proxy_names);
+    manual_proxies.push(Value::String("DIRECT".to_owned()));
     insert_val(&mut select_group, "proxies", Value::Sequence(manual_proxies));
 
     let groups_val = Value::Sequence(vec![Value::Mapping(group), Value::Mapping(select_group)]);
 
-    // Minimal rules
-    let rules_val = Value::Sequence(vec![Value::String("MATCH,Manual".to_owned())]);
+    // Default rules. Loopback/LAN/private traffic must stay DIRECT or local
+    // network access (printers, routers, NAS, localhost dev servers) breaks
+    // once the tunnel is up. Everything else falls through to the proxy.
+    //
+    // Users layer their own site/app rules on top via the Rules enhancement
+    // (`prepend`), which is inserted *above* these — see utils::tmpl::ITEM_RULES.
+    let rules_val = Value::Sequence(
+        [
+            "DOMAIN-SUFFIX,local,DIRECT",
+            "IP-CIDR,127.0.0.0/8,DIRECT,no-resolve",
+            "IP-CIDR,10.0.0.0/8,DIRECT,no-resolve",
+            "IP-CIDR,172.16.0.0/12,DIRECT,no-resolve",
+            "IP-CIDR,192.168.0.0/16,DIRECT,no-resolve",
+            "IP-CIDR6,fc00::/7,DIRECT,no-resolve",
+            "GEOIP,private,DIRECT,no-resolve",
+            "MATCH,Manual",
+        ]
+        .iter()
+        .map(|r| Value::String((*r).to_owned()))
+        .collect(),
+    );
 
     let mut root = Mapping::new();
     root.insert(Value::String("proxies".to_owned()), proxies_val);
     root.insert(Value::String("proxy-groups".to_owned()), groups_val);
     root.insert(Value::String("rules".to_owned()), rules_val);
+    // Required for PROCESS-NAME / PROCESS-PATH rules (per-application routing)
+    // to match. mihomo's default (`strict`) skips process lookup in cases where
+    // app rules would otherwise silently never fire.
+    root.insert(
+        Value::String("find-process-mode".to_owned()),
+        Value::String("always".to_owned()),
+    );
 
     serde_yaml_ng::to_string(&Value::Mapping(root)).context("failed to serialize Clash YAML")
 }
@@ -1057,6 +1085,51 @@ mod tests {
         assert!(result.contains("proxies:"));
         assert!(result.contains("Node1"));
         assert!(result.contains("Node2"));
+    }
+
+    #[test]
+    fn test_generated_config_supports_split_routing() {
+        let uris = vec!["trojan://pass@1.1.1.1:443?sni=a.com#Node1"];
+        let encoded = general_purpose::STANDARD.encode(uris.join("\n"));
+        let yaml = try_convert_txt_to_yaml(&encoded).unwrap().unwrap();
+        let parsed: Value = serde_yaml_ng::from_str(&yaml).expect("generated config must be valid YAML");
+
+        // Per-app (PROCESS-NAME) rules only match when process lookup is forced.
+        assert_eq!(parsed["find-process-mode"].as_str(), Some("always"));
+
+        let rules: Vec<&str> = parsed["rules"]
+            .as_sequence()
+            .expect("rules must be a sequence")
+            .iter()
+            .filter_map(|r| r.as_str())
+            .collect();
+
+        // LAN/loopback must bypass the tunnel, and it has to be decided before
+        // the catch-all or local network access breaks.
+        assert!(rules.iter().any(|r| r.starts_with("IP-CIDR,192.168.0.0/16,DIRECT")));
+        assert_eq!(rules.last(), Some(&"MATCH,Manual"));
+        let first_match = rules.iter().position(|r| r.starts_with("MATCH,")).unwrap();
+        assert!(
+            rules[..first_match]
+                .iter()
+                .all(|r| r.ends_with("DIRECT") || r.contains(",DIRECT,")),
+            "every rule above the catch-all should be a DIRECT bypass"
+        );
+
+        // DIRECT must be selectable so traffic can be sent outside the tunnel.
+        let manual = parsed["proxy-groups"]
+            .as_sequence()
+            .unwrap()
+            .iter()
+            .find(|g| g["name"].as_str() == Some("Manual"))
+            .expect("Manual group must exist");
+        assert!(
+            manual["proxies"]
+                .as_sequence()
+                .unwrap()
+                .iter()
+                .any(|p| p.as_str() == Some("DIRECT"))
+        );
     }
 
     #[test]
