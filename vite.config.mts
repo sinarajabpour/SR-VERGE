@@ -26,6 +26,11 @@ export default defineConfig({
     outDir: '../dist',
     emptyOutDir: true,
     chunkSizeWarningLimit: 4000,
+    rollupOptions: {
+      output: {
+        entryFileNames: 'assets/app-[hash].js',
+      },
+    },
   },
   resolve: {
     alias: {
