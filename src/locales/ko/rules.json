@@ -12,7 +12,13 @@
       "editRules": "Edit Rules",
       "globalRules": "Global Rules",
       "noProfile": "Import a profile first",
-      "noRulesEnhancement": "Use Profiles → right-click → Edit Rules"
+      "noRulesEnhancement": "Use Profiles → right-click → Edit Rules",
+      "iranOffline": "Iran Direct",
+      "iranOfflineTip": "Route Iranian sites directly, everything else through the proxy. Uses the geo data bundled with the app, so it works without an internet connection.",
+      "iranOnline": "Iran Direct (Online List)",
+      "iranOnlineTip": "Same as Iran Direct, plus a larger Iranian domain list downloaded in the background. Better coverage, but needs a working connection to update.",
+      "presetApplied": "Applied. Added to Global Rules.",
+      "presetFailed": "Could not apply the preset: {{error}}"
     },
     "title": "규칙"
   },

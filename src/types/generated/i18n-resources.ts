@@ -559,8 +559,14 @@ export interface TranslationResources {
         actions: {
           editRules: string
           globalRules: string
+          iranOffline: string
+          iranOfflineTip: string
+          iranOnline: string
+          iranOnlineTip: string
           noProfile: string
           noRulesEnhancement: string
+          presetApplied: string
+          presetFailed: string
         }
         provider: {
           actions: {

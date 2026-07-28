@@ -24,6 +24,8 @@ import {
   readProfileFile,
   saveProfileFile,
 } from '@/services/cmds'
+import { showNotice } from '@/services/notice-service'
+import { applyIranPreset } from '@/services/rule-presets'
 
 const RulesPage = () => {
   const { t } = useTranslation()
@@ -45,6 +47,19 @@ const RulesPage = () => {
     await enhanceProfiles()
     refreshRules()
   }, [refreshRules])
+
+  const applyPreset = useLockFn(async (online: boolean) => {
+    try {
+      const merged = applyIranPreset(await readProfileFile('Merge'), { online })
+      if (!(await saveProfileFile('Merge', merged))) return
+      await applyAndRefresh()
+      showNotice.success('rules.page.actions.presetApplied')
+    } catch (err) {
+      showNotice.error('rules.page.actions.presetFailed', {
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
+  })
 
   const loadGlobalMerge = useCallback(() => readProfileFile('Merge'), [])
   const globalDocument = useEditorDocument({
@@ -130,6 +145,24 @@ const RulesPage = () => {
           >
             {t('rules.page.actions.globalRules')}
           </Button>
+          <Tooltip title={t('rules.page.actions.iranOfflineTip')}>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => applyPreset(false)}
+            >
+              {t('rules.page.actions.iranOffline')}
+            </Button>
+          </Tooltip>
+          <Tooltip title={t('rules.page.actions.iranOnlineTip')}>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => applyPreset(true)}
+            >
+              {t('rules.page.actions.iranOnline')}
+            </Button>
+          </Tooltip>
           <ProviderButton />
         </Box>
       }
