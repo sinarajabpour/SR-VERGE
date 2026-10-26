@@ -35,6 +35,7 @@
         "importRetry": "İçe aktarma başarısız oldu, Clash vekil ile yeniden deneniyor...",
         "importFail": "Clash vekil ile bile içe aktarma başarısız oldu",
         "importNeedsRefresh": "Profile imported but may need manual refresh",
+        "importSkippedNodes": "These servers can't be used by the core and were skipped",
         "importSuccess": "Profile imported successfully, please restart if not visible",
         "profileSwitched": "Profil Değiştirildi",
         "profileReactivated": "Profil Yeniden Etkinleştirildi",

@@ -35,6 +35,7 @@
         "importRetry": "Import failed, retrying with Clash proxy...",
         "importFail": "Import failed even with Clash proxy",
         "importNeedsRefresh": "Profile imported but may need manual refresh",
+        "importSkippedNodes": "These servers can't be used by the core and were skipped",
         "importSuccess": "Profile imported successfully, please restart if not visible",
         "profileSwitched": "Profil Beralih",
         "profileReactivated": "Profil Diaktifkan Kembali",

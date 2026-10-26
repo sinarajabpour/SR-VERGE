@@ -35,6 +35,7 @@
         "importRetry": "Не удалось импортировать, повторная попытка через Clash proxy...",
         "importFail": "Не удалось импортировать даже через Clash proxy",
         "importNeedsRefresh": "Профиль импортирован, но может потребоваться обновление вручную",
+        "importSkippedNodes": "These servers can't be used by the core and were skipped",
         "importSuccess": "Профиль успешно импортирован. Перезапустите приложение, если он не появился",
         "profileSwitched": "Профиль переключён",
         "profileReactivated": "Профиль перезапущен",

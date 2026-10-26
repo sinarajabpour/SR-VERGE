@@ -35,6 +35,7 @@
         "importRetry": "インポートに失敗しました。Clashプロキシを使用して再試行します...",
         "importFail": "Clashプロキシを使用してもインポートに失敗しました。",
         "importNeedsRefresh": "Profile imported but may need manual refresh",
+        "importSkippedNodes": "These servers can't be used by the core and were skipped",
         "importSuccess": "Profile imported successfully, please restart if not visible",
         "profileSwitched": "プロファイルが切り替えられました。",
         "profileReactivated": "プロファイルが再アクティブ化されました。",

@@ -19,6 +19,11 @@ export const handleNoticeMessage = (
         'shared.feedback.notifications.importSubscriptionSuccess',
       )
     },
+    import_skipped_nodes: () =>
+      showNotice.info(
+        'profiles.page.feedback.notifications.importSkippedNodes',
+        msg,
+      ),
     'import_sub_url::error': () => {
       navigate('/profile')
       showNotice.error(msg)

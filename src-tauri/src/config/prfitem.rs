@@ -384,17 +384,8 @@ impl PrfItem {
         // process the charset "UTF-8 with BOM"
         let data = data.trim_start_matches('\u{feff}');
 
-        // Convert .txt (Base64 proxy-URI) subscriptions to Clash YAML and
-        // deduplicate proxy names so mihomo accepts the config.
-        let normalized = crate::utils::proxy_parser::normalize_subscription(data);
+        let normalized = prepare_remote_data(data).await?;
         let data = normalized.as_str();
-
-        // check the data whether the valid yaml format
-        let yaml = serde_yaml_ng::from_str::<Mapping>(data).context("the remote profile data is invalid yaml")?;
-
-        if !yaml.contains_key("proxies") && !yaml.contains_key("proxy-providers") {
-            bail!("profile does not contain `proxies` or `proxy-providers`");
-        }
 
         if merge.is_none() {
             let merge_item = &mut Self::from_merge(None)?;
@@ -591,6 +582,27 @@ const fn default_allow_auto_update() -> Option<bool> {
 /// Fix URLs where query parameters are incorrectly appended to the path segment
 ///
 /// Incorrect Example: https://example.com/path&param1=value1
+/// Turn a downloaded subscription body into a config mihomo will load:
+/// convert share-link (V2Ray/Base64) subscriptions to Clash YAML, deduplicate
+/// proxy names, fill in missing groups/rules, and drop servers the core
+/// cannot load so one broken node does not make the whole subscription
+/// unusable.
+async fn prepare_remote_data(data: &str) -> Result<std::string::String> {
+    let normalized = crate::utils::proxy_parser::normalize_subscription(data)?;
+    let (normalized, dropped) = crate::core::import_check::prune_rejected_proxies(normalized).await;
+    if !dropped.is_empty() {
+        crate::core::handle::Handle::notice_message("import_skipped_nodes", dropped.join(", "));
+    }
+
+    let yaml = serde_yaml_ng::from_str::<Mapping>(&normalized).context(
+        "the subscription is neither a Clash/mihomo config nor a list of share links (vless://, vmess://, ss://, …)",
+    )?;
+    if !yaml.contains_key("proxies") && !yaml.contains_key("proxy-providers") {
+        bail!("profile does not contain `proxies` or `proxy-providers`");
+    }
+    Ok(normalized)
+}
+
 fn fix_dirty_url(input: &str) -> Result<Url> {
     let mut url = match Url::parse(input) {
         Ok(u) => u,

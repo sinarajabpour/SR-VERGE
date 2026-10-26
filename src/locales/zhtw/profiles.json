@@ -35,6 +35,7 @@
         "importRetry": "訂閱匯入失敗，嘗試使用 Clash 代理匯入",
         "importFail": "使用 Clash 代理匯入訂閱也失敗",
         "importNeedsRefresh": "Profile imported but may need manual refresh",
+        "importSkippedNodes": "These servers can't be used by the core and were skipped",
         "importSuccess": "Profile imported successfully, please restart if not visible",
         "profileSwitched": "訂閱已切換",
         "profileReactivated": "訂閱已啟用",

@@ -113,9 +113,15 @@ pub async fn import_profile(url: std::string::String, option: Option<PrfOption>)
 #[tauri::command]
 pub async fn convert_proxy_uri(uri: String) -> CmdResult<String> {
     match crate::utils::proxy_parser::try_convert_txt_to_yaml(&uri) {
-        Ok(Some(yaml)) => Ok(yaml.into()),
-        Ok(None) => Err("input is not a recognized proxy URI".into()),
-        Err(e) => Err(format!("failed to parse proxy uri: {e}").into()),
+        Ok(Some(yaml)) => {
+            let (yaml, dropped) = crate::core::import_check::prune_rejected_proxies(yaml).await;
+            if !dropped.is_empty() {
+                handle::Handle::notice_message("import_skipped_nodes", dropped.join(", "));
+            }
+            Ok(yaml.into())
+        }
+        Ok(None) => Err("input is not a recognized proxy link (vless://, vmess://, ss://, trojan://, …)".into()),
+        Err(e) => Err(format!("{e:#}").into()),
     }
 }
 

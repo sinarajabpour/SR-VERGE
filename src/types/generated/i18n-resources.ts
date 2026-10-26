@@ -376,6 +376,7 @@ export interface TranslationResources {
             importFail: string
             importNeedsRefresh: string
             importRetry: string
+            importSkippedNodes: string
             importSuccess: string
             profileReactivated: string
             profileSwitched: string

@@ -1,65 +1,139 @@
-use anyhow::{Context as _, Result, bail};
-use base64::{Engine as _, engine::general_purpose};
+//! Subscription and share-link import.
+//!
+//! Turns the formats proxy providers actually ship into a Clash Meta (mihomo)
+//! config:
+//!
+//! * V2Ray-style subscriptions: a Base64 (or plain-text) list of share links.
+//! * Single or multiple share links pasted directly into the import box.
+//! * Clash YAML that only carries `proxies` (no groups/rules), which would
+//!   otherwise load "successfully" while routing every connection DIRECT.
+//!
+//! Link parsing follows mihomo's own converter (`common/convert`) so a link
+//! produces the same node the core itself would build from it.
+
+use anyhow::{Context as _, Result, anyhow, bail};
+use base64::{
+    Engine as _, alphabet,
+    engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig},
+};
 use percent_encoding::percent_decode_str;
 use serde_yaml_ng::{Mapping, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-/// Known proxy URI schemes we can parse.
+/// Share-link schemes we can turn into a mihomo proxy.
 const KNOWN_SCHEMES: &[&str] = &[
-    "vmess://",
-    "vless://",
-    "trojan://",
-    "ss://",
-    "ssr://",
-    "hysteria2://",
-    "hy2://",
-    "tuic://",
+    "vmess",
+    "vless",
+    "trojan",
+    "ss",
+    "ssr",
+    "hysteria",
+    "hysteria2",
+    "hy2",
+    "tuic",
+    "anytls",
+    "socks",
+    "socks5",
+    "socks5h",
+    "wireguard",
+    "wg",
 ];
 
-/// Attempt to detect and convert a Base64-encoded (or plain) proxy URI list
-/// into a valid Clash Meta YAML string.
+/// Name of the auto-select group in generated configs.
+pub const AUTO_GROUP: &str = "Subscription";
+/// Name of the manual-select group in generated configs. User rules and the
+/// Rules page templates use it as the "send through the proxy" target.
+pub const MANUAL_GROUP: &str = "Manual";
+
+const LENIENT_B64: GeneralPurposeConfig = GeneralPurposeConfig::new()
+    .with_decode_padding_mode(DecodePaddingMode::Indifferent)
+    .with_decode_allow_trailing_bits(true);
+const B64_STD: GeneralPurpose = GeneralPurpose::new(&alphabet::STANDARD, LENIENT_B64);
+const B64_URL: GeneralPurpose = GeneralPurpose::new(&alphabet::URL_SAFE, LENIENT_B64);
+
+// ---------------------------------------------------------------------------
+// Public entry points
+// ---------------------------------------------------------------------------
+
+/// Detect a share-link list (Base64-encoded or plain) and convert it to a
+/// complete Clash Meta config.
 ///
-/// Returns `Ok(None)` when the content does not look like a URI list at all,
-/// so the caller can fall through to normal YAML handling without error.
+/// Returns `Ok(None)` when the content contains no share links at all, so the
+/// caller can fall through to normal YAML handling. Returns an error when it
+/// does contain links but none of them could be parsed.
 pub fn try_convert_txt_to_yaml(raw: &str) -> Result<Option<String>> {
-    let text = decode_if_base64(raw.trim());
-
-    let lines: Vec<&str> = text
-        .lines()
-        .map(|l| l.trim())
-        .filter(|l| !l.is_empty() && !l.starts_with('#'))
-        .collect();
-
-    let uri_lines: Vec<&str> = lines
-        .iter()
-        .copied()
-        .filter(|l| KNOWN_SCHEMES.iter().any(|s| l.to_ascii_lowercase().starts_with(s)))
-        .collect();
-
-    if uri_lines.is_empty() {
+    let text = decode_subscription_body(raw.trim().trim_start_matches('\u{feff}'));
+    let links = split_share_links(&text);
+    if links.is_empty() {
         return Ok(None);
     }
 
-    let mut proxies: Vec<Mapping> = Vec::new();
-    for line in &uri_lines {
-        match parse_proxy_uri(line) {
+    let mut proxies: Vec<Mapping> = Vec::with_capacity(links.len());
+    let mut first_err: Option<anyhow::Error> = None;
+    for link in &links {
+        match parse_proxy_uri(link) {
             Ok(node) => proxies.push(node),
-            Err(e) => log::warn!("[proxy_parser] skipping unparseable URI: {e}"),
+            Err(e) => {
+                log::warn!("[proxy_parser] skipping link: {e:#}");
+                first_err.get_or_insert(e);
+            }
         }
     }
 
     if proxies.is_empty() {
+        let reason = first_err.map(|e| format!("{e:#}")).unwrap_or_default();
         bail!(
-            "subscription contained {} URI lines but none could be parsed",
-            uri_lines.len()
+            "found {} share link(s) but none could be imported: {reason}",
+            links.len()
+        );
+    }
+    if proxies.len() < links.len() {
+        log::warn!(
+            "[proxy_parser] imported {} of {} links; the rest were skipped",
+            proxies.len(),
+            links.len()
         );
     }
 
-    // mihomo requires unique proxy names; rename duplicates by appending a counter.
     dedupe_proxy_names(&mut proxies);
+    build_clash_yaml(proxies).map(Some)
+}
 
-    let yaml = build_clash_yaml(proxies)?;
-    Ok(Some(yaml))
+/// Apply SR Verge's import transforms to raw remote subscription text and
+/// return a config mihomo can load:
+///
+/// 1. Reject bodies that are clearly not a config (HTML pages, sing-box/Xray
+///    JSON) with a message the user can act on.
+/// 2. Convert share-link lists (Base64 or plain) to Clash Meta YAML.
+/// 3. Deduplicate proxy names (mihomo rejects duplicates).
+/// 4. Add proxy groups and rules to Clash YAML that only lists `proxies`.
+pub fn normalize_subscription(data: &str) -> Result<String> {
+    let data = data.trim_start_matches('\u{feff}');
+    reject_non_config(data)?;
+
+    if let Some(yaml) = try_convert_txt_to_yaml(data)? {
+        log::info!("[profile] converted share-link subscription to Clash YAML");
+        return Ok(yaml);
+    }
+
+    let mut out = data.to_owned();
+    match dedupe_clash_yaml(&out) {
+        Ok(Some(yaml)) => {
+            log::info!("[profile] deduplicated proxy names in config");
+            out = yaml;
+        }
+        Ok(None) => {}
+        Err(e) => log::warn!("[profile] proxy name dedup failed: {e}"),
+    }
+    match complete_clash_yaml(&out) {
+        Ok(Some(yaml)) => {
+            log::info!("[profile] added default proxy groups/rules to config");
+            out = yaml;
+        }
+        Ok(None) => {}
+        Err(e) => log::warn!("[profile] completing config failed: {e}"),
+    }
+    Ok(out)
 }
 
 /// Deduplicate proxy names in a full Clash YAML config.
@@ -79,76 +153,24 @@ pub fn dedupe_clash_yaml(data: &str) -> Result<Option<String>> {
         Ok(v) => v,
         Err(_) => return Ok(None),
     };
-    let map = match root.as_mapping_mut() {
-        Some(m) => m,
-        None => return Ok(None),
+    let Some(map) = root.as_mapping_mut() else {
+        return Ok(None);
+    };
+    let Some(proxies) = map.get_mut("proxies").and_then(|v| v.as_sequence_mut()) else {
+        return Ok(None);
     };
 
     // For each original name, the ordered list of names assigned to its
     // successive occurrences (index 0 == the unchanged first occurrence).
-    let mut occurrences: HashMap<String, Vec<String>> = HashMap::new();
-    let mut any_dupe = false;
-
-    {
-        let proxies = match map.get_mut("proxies").and_then(|v| v.as_sequence_mut()) {
-            Some(seq) => seq,
-            None => return Ok(None),
-        };
-
-        let mut counts: HashMap<String, usize> = HashMap::new();
-        for proxy in proxies.iter_mut() {
-            let m = match proxy.as_mapping_mut() {
-                Some(m) => m,
-                None => continue,
-            };
-            let name = match m.get("name").and_then(|v| v.as_str()) {
-                Some(s) => s.to_owned(),
-                None => continue,
-            };
-            let count = counts.entry(name.clone()).or_insert(0);
-            *count += 1;
-            let assigned = if *count == 1 {
-                name.clone()
-            } else {
-                any_dupe = true;
-                let renamed = format!("{name} #{}", *count);
-                m.insert(Value::String("name".to_owned()), Value::String(renamed.clone()));
-                renamed
-            };
-            occurrences.entry(name).or_default().push(assigned);
-        }
-    }
-
-    if !any_dupe {
+    let occurrences = rename_duplicate_proxies(proxies);
+    if !occurrences.values().any(|names| names.len() > 1) {
         return Ok(None);
     }
 
-    // Rewrite proxy-group references positionally.
     if let Some(groups) = map.get_mut("proxy-groups").and_then(|v| v.as_sequence_mut()) {
         for group in groups.iter_mut() {
-            let gm = match group.as_mapping_mut() {
-                Some(m) => m,
-                None => continue,
-            };
-            let glist = match gm.get_mut("proxies").and_then(|v| v.as_sequence_mut()) {
-                Some(l) => l,
-                None => continue,
-            };
-            let mut cursor: HashMap<String, usize> = HashMap::new();
-            for entry in glist.iter_mut() {
-                let ref_name = match entry.as_str() {
-                    Some(s) => s.to_owned(),
-                    None => continue,
-                };
-                if let Some(assigned_list) = occurrences.get(&ref_name)
-                    && assigned_list.len() > 1
-                {
-                    let idx = cursor.entry(ref_name).or_insert(0);
-                    if let Some(new_name) = assigned_list.get(*idx) {
-                        *entry = Value::String(new_name.clone());
-                        *idx += 1;
-                    }
-                }
+            if let Some(list) = group.get_mut("proxies").and_then(|v| v.as_sequence_mut()) {
+                rewrite_group_refs(list, &occurrences);
             }
         }
     }
@@ -157,63 +179,179 @@ pub fn dedupe_clash_yaml(data: &str) -> Result<Option<String>> {
     Ok(Some(out))
 }
 
-/// Apply SR Verge's import transforms to raw remote subscription text:
+/// Add default proxy groups and/or rules to a Clash config that lacks them.
 ///
-/// 1. If the body is a Base64-encoded proxy-URI list (a `.txt` subscription),
-///    convert it to Clash Meta YAML.
-/// 2. Deduplicate proxy names so mihomo (which rejects duplicates) accepts it.
-///
-/// Any step that does not apply or fails is logged and skipped, so the returned
-/// string is always safe to feed to the normal YAML validation path.
-pub fn normalize_subscription(data: &str) -> String {
-    let converted = match try_convert_txt_to_yaml(data) {
-        Ok(Some(yaml)) => {
-            log::info!("[profile] converted txt subscription to Clash YAML");
-            yaml
-        }
-        Ok(None) => data.to_owned(),
-        Err(e) => {
-            log::warn!("[profile] txt conversion attempted but failed: {e}");
-            data.to_owned()
-        }
+/// Some panels serve Clash YAML with only a `proxies` list. mihomo loads it,
+/// but with no rules every connection goes DIRECT, so the profile looks
+/// imported while nothing is proxied. Returns `Ok(None)` when nothing needs to
+/// be added or the input is not a Clash config.
+pub fn complete_clash_yaml(data: &str) -> Result<Option<String>> {
+    let Ok(Value::Mapping(mut root)) = serde_yaml_ng::from_str::<Value>(data) else {
+        return Ok(None);
     };
 
-    match dedupe_clash_yaml(&converted) {
-        Ok(Some(yaml)) => {
-            log::info!("[profile] deduplicated proxy names in config");
-            yaml
-        }
-        Ok(None) => converted,
-        Err(e) => {
-            log::warn!("[profile] proxy name dedup failed: {e}");
-            converted
+    let has_groups = non_empty_seq(root.get("proxy-groups"));
+    let has_rules = non_empty_seq(root.get("rules"));
+    if has_groups && has_rules {
+        return Ok(None);
+    }
+
+    let proxy_names: Vec<Value> = root
+        .get("proxies")
+        .and_then(|v| v.as_sequence())
+        .map(|seq| seq.iter().filter_map(|p| p.get("name").cloned()).collect())
+        .unwrap_or_default();
+    let providers: Vec<Value> = root
+        .get("proxy-providers")
+        .and_then(|v| v.as_mapping())
+        .map(|m| m.keys().cloned().collect())
+        .unwrap_or_default();
+    if proxy_names.is_empty() && providers.is_empty() {
+        return Ok(None);
+    }
+
+    let target = if has_groups {
+        first_group_name(&root).unwrap_or_else(|| MANUAL_GROUP.to_owned())
+    } else {
+        root.insert(
+            "proxy-groups".into(),
+            Value::Sequence(default_groups(proxy_names, &providers)),
+        );
+        MANUAL_GROUP.to_owned()
+    };
+    if !has_rules {
+        root.insert("rules".into(), default_rules(&target));
+        if !root.contains_key("find-process-mode") {
+            root.insert("find-process-mode".into(), "always".into());
         }
     }
+
+    let out = serde_yaml_ng::to_string(&root).context("failed to serialize completed config")?;
+    Ok(Some(out))
+}
+
+/// Index of the proxy the core refused to load, taken from mihomo's `-t`
+/// output (`proxy 12: vless 1.2.3.4:443 … error`).
+pub fn rejected_proxy_index(core_output: &str) -> Option<usize> {
+    core_output.match_indices("proxy ").find_map(|(pos, m)| {
+        let rest = &core_output[pos + m.len()..];
+        let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+        if digits.is_empty() || !rest[digits.len()..].starts_with(':') {
+            return None;
+        }
+        digits.parse().ok()
+    })
+}
+
+/// Remove the proxy at `index` and every proxy-group reference to it.
+/// Returns the new config and the removed proxy's name. Fails when no usable
+/// proxy would be left.
+pub fn remove_proxy(data: &str, index: usize) -> Result<(String, String)> {
+    let mut root: Value = serde_yaml_ng::from_str(data).context("config is not valid YAML")?;
+    let map = root.as_mapping_mut().context("config is not a mapping")?;
+    let has_providers = map.get("proxy-providers").is_some_and(|p| !p.is_null());
+    let proxies = map
+        .get_mut("proxies")
+        .and_then(|v| v.as_sequence_mut())
+        .context("config has no proxies")?;
+    if index >= proxies.len() {
+        bail!("proxy index {index} out of range");
+    }
+    let removed = proxies.remove(index);
+    let name = removed
+        .get("name")
+        .and_then(|n| n.as_str())
+        .unwrap_or_default()
+        .to_owned();
+    if proxies.is_empty() && !has_providers {
+        bail!("none of the subscription's servers can be used by the core");
+    }
+
+    if let Some(groups) = map.get_mut("proxy-groups").and_then(|v| v.as_sequence_mut()) {
+        for group in groups.iter_mut().filter_map(Value::as_mapping_mut) {
+            let uses_provider = group.get("use").is_some_and(|u| !u.is_null());
+            if let Some(list) = group.get_mut("proxies").and_then(|v| v.as_sequence_mut()) {
+                list.retain(|p| p.as_str() != Some(name.as_str()));
+                // a group needs at least one member to load
+                if list.is_empty() && !uses_provider {
+                    list.push(s("DIRECT"));
+                }
+            }
+        }
+    }
+
+    let out = serde_yaml_ng::to_string(&root).context("failed to serialize config")?;
+    Ok((out, name))
 }
 
 // ---------------------------------------------------------------------------
-// Base64 detection
+// Body detection
 // ---------------------------------------------------------------------------
 
-fn decode_if_base64(s: &str) -> String {
-    // Remove whitespace that some encoders add
-    let stripped: String = s.chars().filter(|c| !c.is_whitespace()).collect();
-
-    for engine in [
-        general_purpose::STANDARD,
-        general_purpose::STANDARD_NO_PAD,
-        general_purpose::URL_SAFE,
-        general_purpose::URL_SAFE_NO_PAD,
-    ] {
-        // Sanity-check: decoded text should contain at least one known scheme
-        if let Ok(bytes) = engine.decode(&stripped)
-            && let Ok(decoded) = String::from_utf8(bytes)
-            && KNOWN_SCHEMES.iter().any(|s| decoded.to_ascii_lowercase().contains(s))
-        {
-            return decoded;
-        }
+fn reject_non_config(data: &str) -> Result<()> {
+    let head: String = data
+        .trim_start()
+        .chars()
+        .take(256)
+        .collect::<String>()
+        .to_ascii_lowercase();
+    if head.starts_with("<!doctype") || head.starts_with("<html") || head.starts_with("<?xml") {
+        bail!(
+            "the subscription link returned a web page instead of a config \
+             (the link may be wrong, expired, or blocked on this network)"
+        );
     }
-    s.to_owned()
+    if head.starts_with('{') && (data.contains("\"outbounds\"") || data.contains("\"inbounds\"")) {
+        bail!(
+            "this is a sing-box/Xray JSON config, which SR Verge cannot import; \
+             ask your provider for a Clash/mihomo or V2Ray (Base64) subscription link"
+        );
+    }
+    Ok(())
+}
+
+/// Return the subscription body as plain text: Base64 bodies are decoded,
+/// anything else is returned unchanged.
+fn decode_subscription_body(text: &str) -> String {
+    if !split_share_links(text).is_empty() {
+        return text.to_owned();
+    }
+    match b64_decode(text) {
+        Some(decoded) if decoded.contains("://") => decoded,
+        _ => text.to_owned(),
+    }
+}
+
+/// Lower-cased scheme of `token` when it is a share link we can parse.
+fn link_scheme(token: &str) -> Option<String> {
+    let (scheme, _) = token.split_once("://")?;
+    let scheme = scheme.to_ascii_lowercase();
+    KNOWN_SCHEMES.contains(&scheme.as_str()).then_some(scheme)
+}
+
+/// Pull share links out of text. Links are usually one per line, but pasted
+/// text often has several on one line separated by spaces; a new link starts
+/// at every token that begins with a known scheme. Other tokens are glued
+/// back onto the current link, so names with raw spaces survive.
+fn split_share_links(text: &str) -> Vec<String> {
+    let mut links = Vec::new();
+    for line in text.lines().map(str::trim) {
+        if line.is_empty() || line.starts_with('#') || line.starts_with("//") {
+            continue;
+        }
+        let mut current: Option<String> = None;
+        for token in line.split_whitespace() {
+            if link_scheme(token).is_some() {
+                links.extend(current.take());
+                current = Some(token.to_owned());
+            } else if let Some(link) = current.as_mut() {
+                link.push(' ');
+                link.push_str(token);
+            }
+        }
+        links.extend(current);
+    }
+    links
 }
 
 // ---------------------------------------------------------------------------
@@ -221,33 +359,36 @@ fn decode_if_base64(s: &str) -> String {
 // ---------------------------------------------------------------------------
 
 fn parse_proxy_uri(line: &str) -> Result<Mapping> {
-    let lower = line.to_ascii_lowercase();
-    if lower.starts_with("vmess://") {
-        parse_vmess(line)
-    } else if lower.starts_with("vless://") {
-        parse_vless(line)
-    } else if lower.starts_with("trojan://") {
-        parse_trojan(line)
-    } else if lower.starts_with("ssr://") {
-        parse_ssr(line)
-    } else if lower.starts_with("ss://") {
-        parse_ss(line)
-    } else if lower.starts_with("hysteria2://") || lower.starts_with("hy2://") {
-        parse_hysteria2(line)
-    } else if lower.starts_with("tuic://") {
-        parse_tuic(line)
-    } else {
-        bail!("unsupported scheme: {line}")
+    let scheme = link_scheme(line).ok_or_else(|| anyhow!("unsupported link: {}", short(line)))?;
+    let node = match scheme.as_str() {
+        "vmess" => parse_vmess(line),
+        "vless" => parse_vless(line),
+        "trojan" => parse_trojan(line),
+        "ss" => parse_ss(line),
+        "ssr" => parse_ssr(line),
+        "hysteria" => parse_hysteria(line),
+        "hysteria2" | "hy2" => parse_hysteria2(line),
+        "tuic" => parse_tuic(line),
+        "anytls" => parse_anytls(line),
+        "socks" | "socks5" | "socks5h" => parse_socks(line),
+        "wireguard" | "wg" => parse_wireguard(line),
+        _ => Err(anyhow!("unsupported scheme `{scheme}`")),
+    };
+    node.with_context(|| format!("invalid {scheme} link {}", short(line)))
+}
+
+/// First 48 characters of a link, for error messages (links carry secrets).
+fn short(line: &str) -> String {
+    let mut s: String = line.chars().take(48).collect();
+    if line.chars().count() > 48 {
+        s.push('…');
     }
+    s
 }
 
 // ---------------------------------------------------------------------------
-// URI helpers
+// URL helpers
 // ---------------------------------------------------------------------------
-
-fn strip_scheme<'a>(uri: &'a str, scheme: &str) -> &'a str {
-    &uri[scheme.len()..]
-}
 
 fn url_decode(s: &str) -> String {
     percent_decode_str(s)
@@ -256,741 +397,1052 @@ fn url_decode(s: &str) -> String {
         .unwrap_or_else(|_| s.to_owned())
 }
 
-/// Parse `user:pass@host:port?query#fragment` (auth part may be absent).
-struct ParsedUrl {
-    auth: String,
+/// Query-string value decoding, matching Go's `url.ParseQuery` (`+` = space).
+fn query_decode(s: &str) -> String {
+    url_decode(&s.replace('+', " "))
+}
+
+fn b64_decode(s: &str) -> Option<String> {
+    let stripped: String = s.chars().filter(|c| !c.is_whitespace()).collect();
+    if stripped.is_empty() {
+        return None;
+    }
+    [B64_STD, B64_URL]
+        .iter()
+        .find_map(|engine| engine.decode(&stripped).ok())
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+}
+
+fn b64_decode_or_raw(s: &str) -> String {
+    b64_decode(s).unwrap_or_else(|| s.to_owned())
+}
+
+/// A share link split into its parts. `user` is still percent-encoded;
+/// `query` values and `fragment` are decoded.
+struct Link {
+    user: String,
     host: String,
     port: Option<String>,
     query: HashMap<String, String>,
-    fragment: Option<String>,
+    fragment: String,
 }
 
-fn parse_url_like(input: &str) -> Result<ParsedUrl> {
-    // Split fragment
-    let (without_frag, fragment) = match input.split_once('#') {
-        Some((a, b)) => (a, Some(url_decode(b))),
-        None => (input, None),
-    };
-
-    // Split query
-    let (without_query, query_str) = match without_frag.split_once('?') {
-        Some((a, b)) => (a, Some(b)),
-        None => (without_frag, None),
-    };
-
-    let query = parse_query_string(query_str.unwrap_or(""));
-
-    // auth@host:port
-    let (auth, host_port) = match without_query.split_once('@') {
-        Some((a, b)) => (url_decode(a), b),
-        None => (String::new(), without_query),
-    };
-
-    // Handle IPv6 [::1]:port
-    let (host, port) = if host_port.starts_with('[') {
-        match host_port.find(']') {
-            Some(idx) => {
-                let host = host_port[1..idx].to_owned();
-                let after = &host_port[idx + 1..];
-                let port = after.strip_prefix(':').map(|p| p.to_owned());
-                (host, port)
-            }
-            None => bail!("invalid IPv6 address: {host_port}"),
-        }
-    } else {
-        match host_port.rsplit_once(':') {
-            Some((h, p)) => (h.to_owned(), Some(p.to_owned())),
-            None => (host_port.to_owned(), None),
-        }
-    };
-
-    Ok(ParsedUrl {
-        auth,
-        host,
-        port,
-        query,
-        fragment,
-    })
-}
-
-fn parse_query_string(qs: &str) -> HashMap<String, String> {
-    let mut map = HashMap::new();
-    for pair in qs.split('&') {
-        if pair.is_empty() {
-            continue;
-        }
-        let (k, v) = match pair.split_once('=') {
-            Some((k, v)) => (k, url_decode(v)),
-            None => (pair, String::new()),
+impl Link {
+    fn parse(line: &str) -> Result<Self> {
+        let body = line.split_once("://").map_or(line, |(_, b)| b);
+        let (body, fragment) = match body.split_once('#') {
+            Some((b, f)) => (b, url_decode(f)),
+            None => (body, String::new()),
         };
+        let (body, query) = match body.split_once('?') {
+            Some((b, q)) => (b, parse_query(q)),
+            None => (body, HashMap::new()),
+        };
+        // authority ends at the first '/', the rest is the (unused) path
+        let authority = body.split('/').next().unwrap_or_default();
+        let (user, host_port) = match authority.rfind('@') {
+            Some(idx) => (&authority[..idx], &authority[idx + 1..]),
+            None => ("", authority),
+        };
+        let (host, port) = split_host_port(host_port)?;
+        if host.is_empty() {
+            bail!("missing server address");
+        }
+        Ok(Self {
+            user: user.to_owned(),
+            host,
+            port,
+            query,
+            fragment: fragment.trim().to_owned(),
+        })
+    }
+
+    fn q(&self, key: &str) -> &str {
+        self.query.get(key).map_or("", String::as_str)
+    }
+
+    /// First non-empty value among `keys`.
+    fn q_any(&self, keys: &[&str]) -> &str {
+        keys.iter().map(|k| self.q(k)).find(|v| !v.is_empty()).unwrap_or("")
+    }
+
+    fn port_or(&self, default: u16) -> Result<u16> {
+        match self.port.as_deref() {
+            Some(p) if !p.is_empty() => parse_port(p),
+            _ => Ok(default),
+        }
+    }
+
+    fn name_or(&self, kind: &str, port: u16) -> String {
+        if self.fragment.is_empty() {
+            format!("{kind} {}:{port}", self.host)
+        } else {
+            self.fragment.clone()
+        }
+    }
+}
+
+fn parse_query(qs: &str) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    for pair in qs.split('&').filter(|p| !p.is_empty()) {
+        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
         if !k.is_empty() {
-            map.insert(k.to_owned(), v);
+            // like Go's Query().Get: the first occurrence wins
+            map.entry(query_decode(k)).or_insert_with(|| query_decode(v));
         }
     }
     map
 }
 
+/// Split `host:port`, `[v6]:port` or a bare host. The port part is returned
+/// verbatim so callers can accept port lists (`443,2000-3000`).
+fn split_host_port(s: &str) -> Result<(String, Option<String>)> {
+    if let Some(rest) = s.strip_prefix('[') {
+        let end = rest.find(']').context("invalid IPv6 address")?;
+        let port = rest[end + 1..].strip_prefix(':').map(str::to_owned);
+        return Ok((rest[..end].to_owned(), port));
+    }
+    // more than one ':' without brackets is a bare IPv6 address
+    if s.matches(':').count() > 1 {
+        return Ok((s.to_owned(), None));
+    }
+    Ok(match s.rsplit_once(':') {
+        Some((h, p)) => (h.to_owned(), Some(p.to_owned())),
+        None => (s.to_owned(), None),
+    })
+}
+
 fn parse_port(s: &str) -> Result<u16> {
-    s.parse::<u16>().with_context(|| format!("invalid port: {s}"))
-}
-
-fn b64_decode_str(s: &str) -> String {
-    let stripped: String = s.chars().filter(|c| !c.is_whitespace()).collect();
-    for engine in [
-        general_purpose::STANDARD,
-        general_purpose::STANDARD_NO_PAD,
-        general_purpose::URL_SAFE,
-        general_purpose::URL_SAFE_NO_PAD,
-    ] {
-        if let Ok(bytes) = engine.decode(&stripped)
-            && let Ok(text) = String::from_utf8(bytes)
-        {
-            return text;
-        }
-    }
-    s.to_owned()
-}
-
-fn insert_str(m: &mut Mapping, k: &str, v: impl Into<String>) {
-    let s: String = v.into();
-    if !s.is_empty() {
-        m.insert(Value::String(k.to_owned()), Value::String(s));
+    match s.trim().parse::<u16>() {
+        Ok(p) if p > 0 => Ok(p),
+        _ => Err(anyhow!("invalid port `{s}`")),
     }
 }
-
-fn insert_val(m: &mut Mapping, k: &str, v: Value) {
-    m.insert(Value::String(k.to_owned()), v);
-}
-
-// ---------------------------------------------------------------------------
-// VMess parser
-// ---------------------------------------------------------------------------
-
-fn parse_vmess(uri: &str) -> Result<Mapping> {
-    let after = strip_scheme(uri, "vmess://");
-    let content = b64_decode_str(after);
-
-    // V2rayN JSON format
-    let params: serde_json::Value =
-        serde_json::from_str(&content).with_context(|| format!("vmess JSON parse failed: {content}"))?;
-
-    let server = params["add"].as_str().unwrap_or("").to_owned();
-    let port_val = params["port"]
-        .as_u64()
-        .map(|n| n.to_string())
-        .or_else(|| params["port"].as_str().map(|s| s.to_owned()))
-        .unwrap_or_default();
-    let port = parse_port(&port_val)?;
-
-    let name = params["ps"]
-        .as_str()
-        .or_else(|| params["remarks"].as_str())
-        .unwrap_or(&format!("VMess {server}:{port}"))
-        .trim()
-        .to_owned();
-
-    let uuid = params["id"].as_str().unwrap_or("").to_owned();
-    let alter_id: u64 = params["aid"]
-        .as_u64()
-        .or_else(|| params["aid"].as_str().and_then(|s| s.parse().ok()))
-        .unwrap_or(0);
-
-    let cipher = params["scy"]
-        .as_str()
-        .filter(|s| !s.is_empty())
-        .unwrap_or("auto")
-        .to_owned();
-
-    let tls_raw = params["tls"].as_str().unwrap_or("");
-    let tls = tls_raw == "tls" || tls_raw == "true" || tls_raw == "1";
-
-    let mut m = Mapping::new();
-    insert_str(&mut m, "name", &name);
-    insert_str(&mut m, "type", "vmess");
-    insert_str(&mut m, "server", &server);
-    insert_val(&mut m, "port", Value::Number(port.into()));
-    insert_str(&mut m, "uuid", &uuid);
-    insert_val(&mut m, "alterId", Value::Number(alter_id.into()));
-    insert_str(&mut m, "cipher", &cipher);
-    insert_val(&mut m, "tls", Value::Bool(tls));
-
-    if tls && let Some(sni) = params["sni"].as_str().filter(|s| !s.is_empty()) {
-        insert_str(&mut m, "servername", sni);
-    }
-
-    let net = params["net"].as_str().unwrap_or("tcp");
-    let host = params["host"].as_str().unwrap_or("");
-    let path = params["path"].as_str().unwrap_or("/");
-
-    match net {
-        "ws" => {
-            insert_str(&mut m, "network", "ws");
-            let mut ws_opts = Mapping::new();
-            if !path.is_empty() {
-                insert_str(&mut ws_opts, "path", path);
-            }
-            if !host.is_empty() {
-                let mut headers = Mapping::new();
-                insert_str(&mut headers, "Host", host);
-                insert_val(&mut ws_opts, "headers", Value::Mapping(headers));
-            }
-            if !ws_opts.is_empty() {
-                insert_val(&mut m, "ws-opts", Value::Mapping(ws_opts));
-            }
-        }
-        "grpc" => {
-            insert_str(&mut m, "network", "grpc");
-            let svc = params["path"].as_str().filter(|s| !s.is_empty()).unwrap_or("");
-            if !svc.is_empty() {
-                let mut grpc_opts = Mapping::new();
-                insert_str(&mut grpc_opts, "grpc-service-name", svc);
-                insert_val(&mut m, "grpc-opts", Value::Mapping(grpc_opts));
-            }
-        }
-        "h2" => {
-            insert_str(&mut m, "network", "h2");
-            let mut h2_opts = Mapping::new();
-            if !host.is_empty() {
-                insert_str(&mut h2_opts, "host", host);
-            }
-            if !path.is_empty() {
-                insert_str(&mut h2_opts, "path", path);
-            }
-            if !h2_opts.is_empty() {
-                insert_val(&mut m, "h2-opts", Value::Mapping(h2_opts));
-            }
-        }
-        _ => {}
-    }
-
-    Ok(m)
-}
-
-// ---------------------------------------------------------------------------
-// VLESS parser
-// ---------------------------------------------------------------------------
-
-fn parse_vless(uri: &str) -> Result<Mapping> {
-    let after = strip_scheme(uri, "vless://");
-    let parsed = parse_url_like(after)?;
-
-    let port = parse_port(parsed.port.as_deref().unwrap_or("443"))?;
-    let name = parsed
-        .fragment
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| format!("VLESS {}:{}", parsed.host, port));
-
-    let mut m = Mapping::new();
-    insert_str(&mut m, "name", &name);
-    insert_str(&mut m, "type", "vless");
-    insert_str(&mut m, "server", &parsed.host);
-    insert_val(&mut m, "port", Value::Number(port.into()));
-    insert_str(&mut m, "uuid", &parsed.auth);
-
-    let q = &parsed.query;
-
-    let security = q.get("security").map(|s| s.as_str()).unwrap_or("");
-    let tls = !security.is_empty() && security != "none";
-    if tls {
-        insert_val(&mut m, "tls", Value::Bool(true));
-    }
-
-    if let Some(sni) = q.get("sni").or_else(|| q.get("peer")) {
-        insert_str(&mut m, "servername", sni);
-    }
-    if let Some(flow) = q.get("flow").filter(|s| !s.is_empty()) {
-        insert_str(&mut m, "flow", flow);
-    }
-    if let Some(fp) = q.get("fp").filter(|s| !s.is_empty()) {
-        insert_str(&mut m, "client-fingerprint", fp);
-    }
-    if let Some(alpn) = q.get("alpn").filter(|s| !s.is_empty()) {
-        let alpn_list: Vec<Value> = alpn.split(',').map(|s| Value::String(s.to_owned())).collect();
-        insert_val(&mut m, "alpn", Value::Sequence(alpn_list));
-    }
-
-    // Reality opts
-    if security == "reality" {
-        let mut reality_opts = Mapping::new();
-        if let Some(pbk) = q.get("pbk").filter(|s| !s.is_empty()) {
-            insert_str(&mut reality_opts, "public-key", pbk);
-        }
-        if let Some(sid) = q.get("sid").filter(|s| !s.is_empty()) {
-            insert_str(&mut reality_opts, "short-id", sid);
-        }
-        if !reality_opts.is_empty() {
-            insert_val(&mut m, "reality-opts", Value::Mapping(reality_opts));
-        }
-    }
-
-    // Transport
-    let net_type = q.get("type").map(|s| s.as_str()).unwrap_or("tcp");
-    let host = q.get("host").map(|s| s.as_str()).unwrap_or("");
-    let path = q.get("path").map(|s| s.as_str()).unwrap_or("");
-
-    match net_type {
-        "ws" | "websocket" => {
-            insert_str(&mut m, "network", "ws");
-            let mut ws_opts = Mapping::new();
-            if !path.is_empty() {
-                insert_str(&mut ws_opts, "path", path);
-            }
-            if !host.is_empty() {
-                let mut headers = Mapping::new();
-                insert_str(&mut headers, "Host", host);
-                insert_val(&mut ws_opts, "headers", Value::Mapping(headers));
-            }
-            if !ws_opts.is_empty() {
-                insert_val(&mut m, "ws-opts", Value::Mapping(ws_opts));
-            }
-        }
-        "grpc" => {
-            insert_str(&mut m, "network", "grpc");
-            if !path.is_empty() {
-                let mut grpc_opts = Mapping::new();
-                insert_str(&mut grpc_opts, "grpc-service-name", path);
-                insert_val(&mut m, "grpc-opts", Value::Mapping(grpc_opts));
-            }
-        }
-        "h2" => {
-            insert_str(&mut m, "network", "h2");
-            let mut h2_opts = Mapping::new();
-            if !host.is_empty() {
-                insert_str(&mut h2_opts, "host", host);
-            }
-            if !path.is_empty() {
-                insert_str(&mut h2_opts, "path", path);
-            }
-            if !h2_opts.is_empty() {
-                insert_val(&mut m, "h2-opts", Value::Mapping(h2_opts));
-            }
-        }
-        _ => {}
-    }
-
-    Ok(m)
-}
-
-// ---------------------------------------------------------------------------
-// Trojan parser
-// ---------------------------------------------------------------------------
-
-fn parse_trojan(uri: &str) -> Result<Mapping> {
-    let after = strip_scheme(uri, "trojan://");
-    let parsed = parse_url_like(after)?;
-
-    let port = parse_port(parsed.port.as_deref().unwrap_or("443"))?;
-    let password = url_decode(&parsed.auth);
-    let name = parsed
-        .fragment
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| format!("Trojan {}:{}", parsed.host, port));
-
-    let mut m = Mapping::new();
-    insert_str(&mut m, "name", &name);
-    insert_str(&mut m, "type", "trojan");
-    insert_str(&mut m, "server", &parsed.host);
-    insert_val(&mut m, "port", Value::Number(port.into()));
-    insert_str(&mut m, "password", &password);
-
-    let q = &parsed.query;
-    if let Some(sni) = q.get("sni").filter(|s| !s.is_empty()) {
-        insert_str(&mut m, "sni", sni);
-    }
-    if let Some(alpn) = q.get("alpn").filter(|s| !s.is_empty()) {
-        let alpn_list: Vec<Value> = alpn.split(',').map(|s| Value::String(s.to_owned())).collect();
-        insert_val(&mut m, "alpn", Value::Sequence(alpn_list));
-    }
-    if let Some(fp) = q.get("fp").or_else(|| q.get("fingerprint")).filter(|s| !s.is_empty()) {
-        insert_str(&mut m, "fingerprint", fp);
-    }
-
-    let net_type = q.get("type").map(|s| s.as_str()).unwrap_or("");
-    let host = q.get("host").map(|s| s.as_str()).unwrap_or("");
-    let path = q.get("path").map(|s| s.as_str()).unwrap_or("");
-
-    if net_type == "ws" {
-        insert_str(&mut m, "network", "ws");
-        let mut ws_opts = Mapping::new();
-        if !host.is_empty() {
-            let mut headers = Mapping::new();
-            insert_str(&mut headers, "Host", host);
-            insert_val(&mut ws_opts, "headers", Value::Mapping(headers));
-        }
-        if !path.is_empty() {
-            insert_str(&mut ws_opts, "path", path);
-        }
-        if !ws_opts.is_empty() {
-            insert_val(&mut m, "ws-opts", Value::Mapping(ws_opts));
-        }
-    } else if net_type == "grpc" {
-        insert_str(&mut m, "network", "grpc");
-        if !path.is_empty() {
-            let mut grpc_opts = Mapping::new();
-            insert_str(&mut grpc_opts, "grpc-service-name", path);
-            insert_val(&mut m, "grpc-opts", Value::Mapping(grpc_opts));
-        }
-    }
-
-    Ok(m)
-}
-
-// ---------------------------------------------------------------------------
-// Shadowsocks parser
-// ---------------------------------------------------------------------------
-
-fn parse_ss(uri: &str) -> Result<Mapping> {
-    let after = strip_scheme(uri, "ss://");
-
-    // Split off fragment (name)
-    let (without_frag, frag) = match after.split_once('#') {
-        Some((a, b)) => (a, Some(url_decode(b))),
-        None => (after, None),
-    };
-
-    // Split off query
-    let (main_raw, query_raw) = match without_frag.split_once('?') {
-        Some((a, b)) => (a, Some(b)),
-        None => (without_frag, None),
-    };
-
-    // main part may be plain `userinfo@host:port` or base64(`method:pass`)@host:port
-    let main = if main_raw.contains('@') {
-        main_raw.to_owned()
-    } else {
-        b64_decode_str(main_raw)
-    };
-
-    let at_idx = main.rfind('@').context("ss uri missing '@'")?;
-    let user_info_raw = b64_decode_str(&main[..at_idx]);
-    let server_part = main[at_idx + 1..].split('/').next().unwrap_or("");
-
-    let port_idx = server_part.rfind(':').context("ss uri missing port")?;
-    let server = server_part[..port_idx].to_owned();
-    let port = parse_port(&server_part[port_idx + 1..])?;
-
-    let (cipher, password) = match user_info_raw.split_once(':') {
-        Some((c, p)) => (c.to_owned(), p.to_owned()),
-        None => bail!("ss uri invalid user info"),
-    };
-
-    let name = frag
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| format!("SS {server}:{port}"));
-
-    let mut m = Mapping::new();
-    insert_str(&mut m, "name", &name);
-    insert_str(&mut m, "type", "ss");
-    insert_str(&mut m, "server", &server);
-    insert_val(&mut m, "port", Value::Number(port.into()));
-    insert_str(&mut m, "cipher", &cipher);
-    insert_str(&mut m, "password", &password);
-
-    if let Some(qs) = query_raw {
-        let params = parse_query_string(qs);
-        if let Some(plugin_raw) = params.get("plugin") {
-            let parts: Vec<&str> = plugin_raw.splitn(2, ';').collect();
-            let plugin_name = parts[0];
-            match plugin_name {
-                "obfs-local" | "simple-obfs" => {
-                    insert_str(&mut m, "plugin", "obfs");
-                    let opts_raw = parts.get(1).copied().unwrap_or("");
-                    let opts = parse_query_string(opts_raw);
-                    let mut plugin_opts = Mapping::new();
-                    if let Some(mode) = opts.get("obfs") {
-                        insert_str(&mut plugin_opts, "mode", mode);
-                    }
-                    if let Some(host) = opts.get("obfs-host") {
-                        insert_str(&mut plugin_opts, "host", host);
-                    }
-                    insert_val(&mut m, "plugin-opts", Value::Mapping(plugin_opts));
-                }
-                "v2ray-plugin" => {
-                    insert_str(&mut m, "plugin", "v2ray-plugin");
-                    let opts_raw = parts.get(1).copied().unwrap_or("");
-                    let opts = parse_query_string(opts_raw);
-                    let mut plugin_opts = Mapping::new();
-                    insert_str(&mut plugin_opts, "mode", "websocket");
-                    if let Some(host) = opts.get("obfs-host").or_else(|| opts.get("host")) {
-                        insert_str(&mut plugin_opts, "host", host);
-                    }
-                    if let Some(path) = opts.get("path") {
-                        insert_str(&mut plugin_opts, "path", path);
-                    }
-                    insert_val(&mut m, "plugin-opts", Value::Mapping(plugin_opts));
-                }
-                _ => {}
-            }
-        }
-    }
-
-    Ok(m)
-}
-
-// ---------------------------------------------------------------------------
-// ShadowsocksR parser
-// ---------------------------------------------------------------------------
-
-fn parse_ssr(uri: &str) -> Result<Mapping> {
-    let after = strip_scheme(uri, "ssr://");
-    let line = b64_decode_str(after);
-
-    // Find the protocol field boundary (e.g. ":origin", ":auth_sha1_v4", ":auth_aes128_md5")
-    let split_idx = line
-        .find(":origin")
-        .or_else(|| line.find(":auth_"))
-        .or_else(|| line.find(":plain"))
-        .context("SSR uri: cannot find protocol boundary")?;
-
-    let server_port_str = &line[..split_idx];
-    let port_idx = server_port_str.rfind(':').context("SSR uri missing port")?;
-    let server = server_port_str[..port_idx].to_owned();
-    let port = parse_port(&server_port_str[port_idx + 1..])?;
-
-    // Remaining: protocol:cipher:obfs:base64pass/?params
-    let rest = &line[split_idx + 1..];
-    let (main_part, addon_part) = match rest.split_once("/?") {
-        Some((a, b)) => (a, Some(b)),
-        None => (rest, None),
-    };
-
-    let parts: Vec<&str> = main_part.splitn(4, ':').collect();
-    if parts.len() < 4 {
-        bail!("SSR uri: malformed params");
-    }
-    let protocol = parts[0].to_owned();
-    let cipher = parts[1].to_owned();
-    let obfs = parts[2].to_owned();
-    let password = b64_decode_str(parts[3]);
-
-    let addons = addon_part.map(parse_query_string).unwrap_or_default();
-    let name = addons
-        .get("remarks")
-        .map(|r| b64_decode_str(r).trim().to_owned())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| server.clone());
-
-    let mut m = Mapping::new();
-    insert_str(&mut m, "name", &name);
-    insert_str(&mut m, "type", "ssr");
-    insert_str(&mut m, "server", &server);
-    insert_val(&mut m, "port", Value::Number(port.into()));
-    insert_str(&mut m, "cipher", &cipher);
-    insert_str(&mut m, "password", &password);
-    insert_str(&mut m, "protocol", &protocol);
-    insert_str(&mut m, "obfs", &obfs);
-
-    if let Some(pp) = addons.get("protoparam").filter(|s| !s.is_empty()) {
-        insert_str(
-            &mut m,
-            "protocol-param",
-            b64_decode_str(pp).replace(char::is_whitespace, ""),
-        );
-    }
-    if let Some(op) = addons.get("obfsparam").filter(|s| !s.is_empty()) {
-        insert_str(
-            &mut m,
-            "obfs-param",
-            b64_decode_str(op).replace(char::is_whitespace, ""),
-        );
-    }
-
-    Ok(m)
-}
-
-// ---------------------------------------------------------------------------
-// Hysteria2 parser
-// ---------------------------------------------------------------------------
-
-fn parse_hysteria2(uri: &str) -> Result<Mapping> {
-    let after = if uri.to_ascii_lowercase().starts_with("hy2://") {
-        strip_scheme(uri, "hy2://")
-    } else {
-        strip_scheme(uri, "hysteria2://")
-    };
-
-    let parsed = parse_url_like(after)?;
-    let port = parse_port(parsed.port.as_deref().unwrap_or("443"))?;
-    let password = url_decode(&parsed.auth);
-    let name = parsed
-        .fragment
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| format!("Hysteria2 {}:{}", parsed.host, port));
-
-    let mut m = Mapping::new();
-    insert_str(&mut m, "name", &name);
-    insert_str(&mut m, "type", "hysteria2");
-    insert_str(&mut m, "server", &parsed.host);
-    insert_val(&mut m, "port", Value::Number(port.into()));
-    insert_str(&mut m, "password", &password);
-
-    let q = &parsed.query;
-    if let Some(sni) = q.get("sni").or_else(|| q.get("peer")).filter(|s| !s.is_empty()) {
-        insert_str(&mut m, "sni", sni);
-    }
-    if let Some(obfs) = q.get("obfs").filter(|s| !s.is_empty() && *s != "none") {
-        insert_str(&mut m, "obfs", obfs);
-    }
-    if let Some(op) = q.get("obfs-password").filter(|s| !s.is_empty()) {
-        insert_str(&mut m, "obfs-password", op);
-    }
-    if let Some(insecure) = q.get("insecure") {
-        insert_val(&mut m, "skip-cert-verify", Value::Bool(parse_bool(insecure)));
-    }
-    if let Some(pin) = q.get("pinSHA256").filter(|s| !s.is_empty()) {
-        insert_str(&mut m, "fingerprint", pin);
-    }
-    if let Some(mport) = q.get("mport").filter(|s| !s.is_empty()) {
-        insert_str(&mut m, "ports", mport);
-    }
-
-    Ok(m)
-}
-
-// ---------------------------------------------------------------------------
-// TUIC parser
-// ---------------------------------------------------------------------------
-
-fn parse_tuic(uri: &str) -> Result<Mapping> {
-    let after = strip_scheme(uri, "tuic://");
-    let parsed = parse_url_like(after)?;
-
-    let port = parse_port(parsed.port.as_deref().unwrap_or("443"))?;
-    let name = parsed
-        .fragment
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| format!("TUIC {}:{}", parsed.host, port));
-
-    // auth is uuid:password
-    let (uuid, password_raw) = match parsed.auth.split_once(':') {
-        Some((u, p)) => (u.to_owned(), p.to_owned()),
-        None => bail!("TUIC uri: missing password in auth"),
-    };
-    let password = url_decode(&password_raw);
-
-    let mut m = Mapping::new();
-    insert_str(&mut m, "name", &name);
-    insert_str(&mut m, "type", "tuic");
-    insert_str(&mut m, "server", &parsed.host);
-    insert_val(&mut m, "port", Value::Number(port.into()));
-    insert_str(&mut m, "uuid", &uuid);
-    insert_str(&mut m, "password", &password);
-
-    let q = &parsed.query;
-    if let Some(cc) = q.get("congestion-controller").filter(|s| !s.is_empty()) {
-        insert_str(&mut m, "congestion-controller", cc);
-    }
-    if let Some(alpn) = q.get("alpn").filter(|s| !s.is_empty()) {
-        let alpn_list: Vec<Value> = alpn.split(',').map(|s| Value::String(s.to_owned())).collect();
-        insert_val(&mut m, "alpn", Value::Sequence(alpn_list));
-    }
-    if let Some(sni) = q.get("sni").filter(|s| !s.is_empty()) {
-        insert_str(&mut m, "sni", sni);
-    }
-    if let Some(udp) = q.get("udp-relay-mode").filter(|s| !s.is_empty()) {
-        insert_str(&mut m, "udp-relay-mode", udp);
-    }
-    if let Some(insecure) = q.get("allow-insecure").or_else(|| q.get("skip-cert-verify")) {
-        insert_val(&mut m, "skip-cert-verify", Value::Bool(parse_bool(insecure)));
-    }
-    if let Some(dsni) = q.get("disable-sni") {
-        insert_val(&mut m, "disable-sni", Value::Bool(parse_bool(dsni)));
-    }
-
-    Ok(m)
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 fn parse_bool(s: &str) -> bool {
-    matches!(s.to_ascii_lowercase().as_str(), "1" | "true" | "yes")
+    matches!(s.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes")
 }
 
-/// Ensure every proxy has a unique `name`. mihomo rejects configs with
-/// duplicate proxy names, which is common in real-world subscriptions.
-fn dedupe_proxy_names(proxies: &mut [Mapping]) {
-    use std::collections::HashSet;
-    let mut used: HashSet<String> = HashSet::new();
-    for proxy in proxies.iter_mut() {
-        let original = proxy.get("name").and_then(|v| v.as_str()).unwrap_or("").to_owned();
-        if used.insert(original.clone()) {
-            continue;
+fn comma_list(s: &str) -> Value {
+    Value::Sequence(
+        s.split(',')
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(|v| Value::String(v.to_owned()))
+            .collect(),
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Node builder
+// ---------------------------------------------------------------------------
+
+/// Thin wrapper over a proxy mapping with insert helpers that skip empties.
+struct Node(Mapping);
+
+impl Node {
+    fn new(name: &str, kind: &str, server: &str, port: u16) -> Self {
+        let mut node = Self(Mapping::new());
+        node.set("name", Value::String(name.to_owned()));
+        node.set("type", Value::String(kind.to_owned()));
+        node.set("server", Value::String(server.to_owned()));
+        node.set("port", Value::Number(port.into()));
+        node
+    }
+
+    fn set(&mut self, key: &str, value: Value) {
+        self.0.insert(Value::String(key.to_owned()), value);
+    }
+
+    fn str(&mut self, key: &str, value: &str) {
+        if !value.is_empty() {
+            self.set(key, Value::String(value.to_owned()));
         }
-        // Name taken — find the next free "name #N".
-        let mut n = 2;
-        let mut candidate = format!("{original} #{n}");
-        while !used.insert(candidate.clone()) {
-            n += 1;
-            candidate = format!("{original} #{n}");
+    }
+
+    fn flag(&mut self, key: &str, value: bool) {
+        self.set(key, Value::Bool(value));
+    }
+
+    fn list(&mut self, key: &str, csv: &str) {
+        if !csv.trim().is_empty() {
+            self.set(key, comma_list(csv));
         }
-        proxy.insert(Value::String("name".to_owned()), Value::String(candidate));
+    }
+
+    fn map(&mut self, key: &str, value: Mapping) {
+        if !value.is_empty() {
+            self.set(key, Value::Mapping(value));
+        }
+    }
+}
+
+fn mapping(pairs: &[(&str, Value)]) -> Mapping {
+    pairs
+        .iter()
+        .filter(|(_, v)| !matches!(v, Value::String(s) if s.is_empty()))
+        .map(|(k, v)| (Value::String((*k).to_owned()), v.clone()))
+        .collect()
+}
+
+fn s(v: &str) -> Value {
+    Value::String(v.to_owned())
+}
+
+// ---------------------------------------------------------------------------
+// TLS and transport (shared by vmess / vless / trojan)
+// ---------------------------------------------------------------------------
+
+#[derive(Default)]
+struct TlsParams<'a> {
+    security: &'a str,
+    sni: &'a str,
+    host: &'a str,
+    fingerprint: &'a str,
+    alpn: &'a str,
+    insecure: bool,
+    public_key: &'a str,
+    short_id: &'a str,
+    pinned_cert: &'a str,
+}
+
+/// Apply TLS options. Returns whether TLS is on.
+///
+/// `sni_key` is `servername` for vmess/vless and `sni` for trojan. When no SNI
+/// is given, the transport Host is used, as v2rayN does: CDN configs often use
+/// an IP address as the server and only work with the domain as SNI.
+fn apply_tls(node: &mut Node, p: &TlsParams<'_>, sni_key: &str, always_tls: bool) -> bool {
+    let security = p.security.to_ascii_lowercase();
+    let reality = security == "reality" || !p.public_key.is_empty();
+    let tls = always_tls || security.ends_with("tls") || reality;
+    if !tls {
+        return false;
+    }
+    if !always_tls {
+        node.flag("tls", true);
+    }
+    let sni = if p.sni.is_empty() && !reality {
+        p.host.split(',').next().unwrap_or_default().trim()
+    } else {
+        p.sni
+    };
+    node.str(sni_key, sni);
+    // uTLS fingerprint; mihomo's converter defaults to chrome and REALITY
+    // requires one.
+    node.str(
+        "client-fingerprint",
+        if p.fingerprint.is_empty() {
+            "chrome"
+        } else {
+            p.fingerprint
+        },
+    );
+    node.list("alpn", p.alpn);
+    if p.insecure {
+        node.flag("skip-cert-verify", true);
+    }
+    node.str("fingerprint", p.pinned_cert);
+    if reality {
+        node.map(
+            "reality-opts",
+            mapping(&[("public-key", s(p.public_key)), ("short-id", s(p.short_id))]),
+        );
+    }
+    true
+}
+
+#[derive(Default)]
+struct TransportParams<'a> {
+    network: &'a str,
+    header_type: &'a str,
+    host: &'a str,
+    path: &'a str,
+    service_name: &'a str,
+    mode: &'a str,
+    early_data: &'a str,
+    early_data_header: &'a str,
+}
+
+/// Split `?ed=2048` (WebSocket early data) off a path.
+fn take_early_data(path: &str) -> (String, Option<u32>) {
+    let Some((base, qs)) = path.split_once('?') else {
+        return (path.to_owned(), None);
+    };
+    let mut ed = None;
+    let rest: Vec<&str> = qs
+        .split('&')
+        .filter(|kv| match kv.strip_prefix("ed=") {
+            Some(v) => {
+                ed = v.parse().ok();
+                ed.is_none()
+            }
+            None => !kv.is_empty(),
+        })
+        .collect();
+    let path = if rest.is_empty() {
+        base.to_owned()
+    } else {
+        format!("{base}?{}", rest.join("&"))
+    };
+    (path, ed)
+}
+
+fn apply_transport(node: &mut Node, p: &TransportParams<'_>) -> Result<()> {
+    let mut network = p.network.trim().to_ascii_lowercase();
+    if (network.is_empty() || network == "tcp" || network == "raw") && p.header_type.eq_ignore_ascii_case("http") {
+        network = "http-obfs".into();
+    }
+    let host = p.host.split(',').next().unwrap_or_default().trim();
+    match network.as_str() {
+        "" | "tcp" | "raw" | "none" => {}
+        "http-obfs" => {
+            node.str("network", "http");
+            let mut opts = mapping(&[("path", Value::Sequence(vec![s(or_root(p.path))]))]);
+            if !host.is_empty() {
+                opts.insert(
+                    s("headers"),
+                    Value::Mapping(mapping(&[("Host", Value::Sequence(vec![s(host)]))])),
+                );
+            }
+            node.map("http-opts", opts);
+        }
+        "h2" | "http" => {
+            node.str("network", "h2");
+            let mut opts = mapping(&[("path", s(or_root(p.path)))]);
+            if !host.is_empty() {
+                opts.insert(s("host"), Value::Sequence(vec![s(host)]));
+            }
+            node.map("h2-opts", opts);
+        }
+        "ws" | "websocket" | "httpupgrade" => apply_ws(node, p, host, network == "httpupgrade"),
+        "grpc" | "gun" => {
+            node.str("network", "grpc");
+            node.map("grpc-opts", mapping(&[("grpc-service-name", s(p.service_name))]));
+        }
+        "xhttp" | "splithttp" => {
+            node.str("network", "xhttp");
+            node.map(
+                "xhttp-opts",
+                mapping(&[("path", s(p.path)), ("host", s(host)), ("mode", s(p.mode))]),
+            );
+        }
+        other => bail!("transport `{other}` is not supported by the mihomo core"),
+    }
+    Ok(())
+}
+
+fn apply_ws(node: &mut Node, p: &TransportParams<'_>, host: &str, http_upgrade: bool) {
+    node.str("network", "ws");
+    let (path, path_ed) = take_early_data(p.path);
+    let early_data = p.early_data.parse::<u32>().ok().or(path_ed);
+    let mut opts = mapping(&[("path", s(or_root(&path)))]);
+    if !host.is_empty() {
+        opts.insert(s("headers"), Value::Mapping(mapping(&[("Host", s(host))])));
+    }
+    if http_upgrade {
+        opts.insert(s("v2ray-http-upgrade"), Value::Bool(true));
+        if early_data.is_some() {
+            opts.insert(s("v2ray-http-upgrade-fast-open"), Value::Bool(true));
+        }
+    } else if let Some(ed) = early_data {
+        opts.insert(s("max-early-data"), Value::Number(ed.into()));
+        let header = if p.early_data_header.is_empty() {
+            "Sec-WebSocket-Protocol"
+        } else {
+            p.early_data_header
+        };
+        opts.insert(s("early-data-header-name"), s(header));
+    }
+    node.map("ws-opts", opts);
+}
+
+const fn or_root(path: &str) -> &str {
+    if path.is_empty() { "/" } else { path }
+}
+
+// ---------------------------------------------------------------------------
+// VMess / VLESS
+// ---------------------------------------------------------------------------
+
+/// Read a v2rayN JSON field that may be a string or a number.
+fn json_str(v: &serde_json::Value, key: &str) -> String {
+    match &v[key] {
+        serde_json::Value::String(s) => s.trim().to_owned(),
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::Bool(b) => b.to_string(),
+        _ => String::new(),
+    }
+}
+
+fn parse_vmess(line: &str) -> Result<Mapping> {
+    let body = line.split_once("://").map_or(line, |(_, b)| b);
+    let encoded = body.split(['#', '?']).next().unwrap_or_default();
+    match b64_decode(encoded) {
+        Some(text) if text.trim_start().starts_with('{') => parse_vmess_v2rayn(&text),
+        Some(text) if text.contains('@') => parse_vmess_shadowrocket(&text, line),
+        // Xray "VMessAEAD" share link: vmess://uuid@host:port?...
+        _ => parse_v_share(line, "vmess"),
+    }
+}
+
+/// v2rayN format: `vmess://` + Base64(JSON).
+fn parse_vmess_v2rayn(text: &str) -> Result<Mapping> {
+    let v: serde_json::Value = serde_json::from_str(text).context("vmess JSON is malformed")?;
+    let server = json_str(&v, "add");
+    if server.is_empty() {
+        bail!("missing server address");
+    }
+    let port = parse_port(&json_str(&v, "port"))?;
+    let name = Some(json_str(&v, "ps"))
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| format!("VMess {server}:{port}"));
+
+    let mut node = Node::new(&name, "vmess", &server, port);
+    node.str("uuid", &json_str(&v, "id"));
+    node.set(
+        "alterId",
+        Value::Number(json_str(&v, "aid").parse::<u64>().unwrap_or(0).into()),
+    );
+    let cipher = json_str(&v, "scy");
+    node.str("cipher", if cipher.is_empty() { "auto" } else { &cipher });
+    node.flag("udp", true);
+
+    let host = json_str(&v, "host");
+    let path = json_str(&v, "path");
+    let security = json_str(&v, "tls");
+    let tls = TlsParams {
+        security: &security,
+        sni: &json_str(&v, "sni"),
+        host: &host,
+        fingerprint: &json_str(&v, "fp"),
+        alpn: &json_str(&v, "alpn"),
+        insecure: parse_bool(&json_str(&v, "allowInsecure")) || parse_bool(&json_str(&v, "insecure")),
+        ..TlsParams::default()
+    };
+    if !apply_tls(&mut node, &tls, "servername", false) {
+        node.flag("tls", false);
+    }
+
+    let network = json_str(&v, "net");
+    let header_type = json_str(&v, "type");
+    apply_transport(
+        &mut node,
+        &TransportParams {
+            network: &network,
+            header_type: &header_type,
+            host: &host,
+            path: &path,
+            service_name: &path,
+            mode: &header_type,
+            ..TransportParams::default()
+        },
+    )?;
+    Ok(node.0)
+}
+
+/// Shadowrocket format: `vmess://` + Base64(`cipher:uuid@host:port`) + `?params`.
+fn parse_vmess_shadowrocket(text: &str, line: &str) -> Result<Mapping> {
+    let (userinfo, host_port) = text.rsplit_once('@').context("missing '@'")?;
+    let (cipher, uuid) = userinfo.split_once(':').unwrap_or(("auto", userinfo));
+    let (server, port) = split_host_port(host_port.trim())?;
+    let port = parse_port(port.as_deref().unwrap_or_default())?;
+    let link = Link::parse(line).ok();
+    let q = |k: &str| link.as_ref().map_or("", |l| l.q(k)).to_owned();
+    let name = Some(q("remarks")).filter(|n| !n.is_empty()).unwrap_or_else(|| {
+        link.as_ref()
+            .map(|l| l.fragment.clone())
+            .filter(|f| !f.is_empty())
+            .unwrap_or_else(|| format!("VMess {server}:{port}"))
+    });
+
+    let mut node = Node::new(&name, "vmess", &server, port);
+    node.str("uuid", uuid);
+    node.set(
+        "alterId",
+        Value::Number(q("alterId").parse::<u64>().unwrap_or(0).into()),
+    );
+    node.str("cipher", if cipher.is_empty() { "auto" } else { cipher });
+    node.flag("udp", true);
+    let host = q("obfsParam");
+    let tls_on = if parse_bool(&q("tls")) { "tls" } else { "" };
+    apply_tls(
+        &mut node,
+        &TlsParams {
+            security: tls_on,
+            sni: &q("peer"),
+            host: &host,
+            insecure: parse_bool(&q("allowInsecure")),
+            ..TlsParams::default()
+        },
+        "servername",
+        false,
+    );
+    let network = match q("obfs").as_str() {
+        "websocket" => "ws".to_owned(),
+        other => other.to_owned(),
+    };
+    let path = q("path");
+    apply_transport(
+        &mut node,
+        &TransportParams {
+            network: &network,
+            host: &host,
+            path: &path,
+            service_name: &path,
+            ..TransportParams::default()
+        },
+    )?;
+    Ok(node.0)
+}
+
+fn parse_vless(line: &str) -> Result<Mapping> {
+    parse_v_share(line, "vless")
+}
+
+/// Xray share-link standard used by VLESS and VMessAEAD links:
+/// `scheme://uuid@host:port?type=..&security=..#name`
+fn parse_v_share(line: &str, kind: &str) -> Result<Mapping> {
+    let link = Link::parse(line)?;
+    let port = link.port_or(443)?;
+    let label = if kind == "vless" { "VLESS" } else { "VMess" };
+    let mut node = Node::new(&link.name_or(label, port), kind, &link.host, port);
+    let uuid = url_decode(&link.user);
+    if uuid.is_empty() {
+        bail!("missing uuid");
+    }
+    node.str("uuid", &uuid);
+    node.flag("udp", true);
+
+    if kind == "vmess" {
+        node.set("alterId", Value::Number(0.into()));
+        let cipher = link.q("encryption");
+        node.str("cipher", if cipher.is_empty() { "auto" } else { cipher });
+    } else {
+        node.str("flow", &link.q("flow").to_ascii_lowercase());
+        let encryption = link.q("encryption");
+        if !encryption.is_empty() && encryption != "none" {
+            node.str("encryption", encryption);
+        }
+    }
+    match link.q("packetEncoding") {
+        "none" => {}
+        "packet" => node.flag("packet-addr", true),
+        _ => node.flag("xudp", true),
+    }
+
+    let host = link.q("host");
+    apply_tls(&mut node, &share_tls(&link, host), "servername", false);
+    apply_transport(&mut node, &share_transport(&link, host))?;
+    Ok(node.0)
+}
+
+fn share_tls<'a>(link: &'a Link, host: &'a str) -> TlsParams<'a> {
+    TlsParams {
+        security: link.q("security"),
+        sni: link.q_any(&["sni", "peer"]),
+        host,
+        fingerprint: link.q("fp"),
+        alpn: link.q("alpn"),
+        insecure: parse_bool(link.q_any(&["allowInsecure", "insecure", "allow_insecure"])),
+        public_key: link.q("pbk"),
+        short_id: link.q("sid"),
+        pinned_cert: link.q("pcs"),
+    }
+}
+
+fn share_transport<'a>(link: &'a Link, host: &'a str) -> TransportParams<'a> {
+    TransportParams {
+        network: link.q("type"),
+        header_type: link.q("headerType"),
+        host,
+        path: link.q("path"),
+        service_name: link.q_any(&["serviceName", "path"]),
+        mode: link.q("mode"),
+        early_data: link.q("ed"),
+        early_data_header: link.q("eh"),
     }
 }
 
 // ---------------------------------------------------------------------------
-// YAML builder
+// Trojan
 // ---------------------------------------------------------------------------
+
+fn parse_trojan(line: &str) -> Result<Mapping> {
+    let link = Link::parse(line)?;
+    let port = link.port_or(443)?;
+    let mut node = Node::new(&link.name_or("Trojan", port), "trojan", &link.host, port);
+    let password = url_decode(&link.user);
+    if password.is_empty() {
+        bail!("missing password");
+    }
+    node.str("password", &password);
+    node.flag("udp", true);
+
+    let host = link.q("host");
+    apply_tls(&mut node, &share_tls(&link, host), "sni", true);
+    apply_transport(&mut node, &share_transport(&link, host))?;
+    Ok(node.0)
+}
+
+// ---------------------------------------------------------------------------
+// Shadowsocks
+// ---------------------------------------------------------------------------
+
+fn parse_ss(line: &str) -> Result<Mapping> {
+    let body = line.split_once("://").map_or(line, |(_, b)| b);
+    let (body, fragment) = match body.split_once('#') {
+        Some((b, f)) => (b, url_decode(f).trim().to_owned()),
+        None => (body, String::new()),
+    };
+    let (main, query) = match body.split_once('?') {
+        Some((m, q)) => (m, parse_query(q)),
+        None => (body, HashMap::new()),
+    };
+
+    // SIP002 has a plain host after '@'; the legacy form Base64-encodes
+    // `method:password@host:port` as a whole.
+    let plain = if main.contains('@') {
+        main.to_owned()
+    } else {
+        b64_decode(main.trim_end_matches('/')).context("legacy ss link is not valid Base64")?
+    };
+    let at = plain.rfind('@').context("missing '@'")?;
+    let host_port = plain[at + 1..].split('/').next().unwrap_or_default();
+    let (server, port) = split_host_port(host_port)?;
+    let port = parse_port(port.as_deref().unwrap_or_default())?;
+    if server.is_empty() {
+        bail!("missing server address");
+    }
+    let (cipher, password) = ss_user_info(&plain[..at])?;
+
+    let name = if fragment.is_empty() {
+        format!("SS {server}:{port}")
+    } else {
+        fragment
+    };
+    let mut node = Node::new(&name, "ss", &server, port);
+    node.str("cipher", &cipher.to_ascii_lowercase());
+    node.str("password", &password);
+    node.flag("udp", true);
+    let get = |k: &str| query.get(k).map_or("", String::as_str);
+    if get("udp-over-tcp") == "true" || get("uot") == "1" {
+        node.flag("udp-over-tcp", true);
+    }
+    apply_ss_plugin(&mut node, get("plugin"));
+    Ok(node.0)
+}
+
+/// `method:password`, either percent-encoded (SIP002 for 2022 ciphers) or
+/// Base64-encoded.
+fn ss_user_info(raw: &str) -> Result<(String, String)> {
+    let decoded = url_decode(raw);
+    let text = if decoded.contains(':') {
+        decoded
+    } else {
+        b64_decode(&decoded).context("user info is not valid Base64")?
+    };
+    let (cipher, password) = text.split_once(':').context("user info must be method:password")?;
+    if cipher.is_empty() {
+        bail!("missing cipher");
+    }
+    Ok((cipher.trim().to_owned(), password.to_owned()))
+}
+
+/// SIP003 plugin string: `name;key=value;flag`.
+fn apply_ss_plugin(node: &mut Node, plugin: &str) {
+    let mut parts = plugin.split(';');
+    let name = parts.next().unwrap_or_default().trim();
+    if name.is_empty() {
+        return;
+    }
+    let mut opts: HashMap<&str, &str> = HashMap::new();
+    for part in parts {
+        let (k, v) = part.split_once('=').unwrap_or((part, "true"));
+        opts.insert(k.trim(), v.trim());
+    }
+    let get = |k: &str| opts.get(k).copied().unwrap_or("");
+
+    if name.contains("obfs") {
+        node.str("plugin", "obfs");
+        let mode = if get("obfs").is_empty() { "http" } else { get("obfs") };
+        node.map(
+            "plugin-opts",
+            mapping(&[("mode", s(mode)), ("host", s(get("obfs-host")))]),
+        );
+    } else if name.contains("v2ray-plugin") {
+        node.str("plugin", "v2ray-plugin");
+        let mode = [get("mode"), get("obfs")]
+            .into_iter()
+            .find(|m| !m.is_empty())
+            .unwrap_or("websocket");
+        let host = if get("host").is_empty() {
+            get("obfs-host")
+        } else {
+            get("host")
+        };
+        let mut plugin_opts = mapping(&[("mode", s(mode)), ("host", s(host)), ("path", s(get("path")))]);
+        if opts.contains_key("tls") {
+            plugin_opts.insert(s("tls"), Value::Bool(true));
+        }
+        if opts.contains_key("mux") {
+            plugin_opts.insert(s("mux"), Value::Bool(parse_bool(get("mux"))));
+        }
+        node.map("plugin-opts", plugin_opts);
+    } else {
+        log::warn!("[proxy_parser] ss plugin `{name}` is not supported, importing without it");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ShadowsocksR
+// ---------------------------------------------------------------------------
+
+/// `ssr://` + Base64(`host:port:protocol:method:obfs:b64pass/?params`).
+fn parse_ssr(line: &str) -> Result<Mapping> {
+    let body = line.split_once("://").map_or(line, |(_, b)| b);
+    let text = b64_decode(body).context("ssr link is not valid Base64")?;
+    let (main, params) = text.split_once("/?").unwrap_or((text.as_str(), ""));
+    let main = main.trim_end_matches('/');
+
+    // host may be IPv6 and contain ':', so peel fields off the right.
+    let fields: Vec<&str> = main.rsplitn(6, ':').collect();
+    let [password, obfs, cipher, protocol, port, host] = fields[..] else {
+        bail!("expected host:port:protocol:method:obfs:password");
+    };
+    let server = host.trim_matches(['[', ']']);
+    let port = parse_port(port)?;
+    let params = parse_query(params);
+    let get = |k: &str| params.get(k).map_or("", String::as_str);
+    let b64 = |k: &str| b64_decode_or_raw(get(k)).trim().to_owned();
+
+    let remarks = b64("remarks");
+    let name = if remarks.is_empty() {
+        format!("SSR {server}:{port}")
+    } else {
+        remarks
+    };
+    let mut node = Node::new(&name, "ssr", server, port);
+    node.str("cipher", cipher);
+    node.str("password", &b64_decode_or_raw(password));
+    node.str("protocol", protocol);
+    node.str("obfs", obfs);
+    node.str("protocol-param", &b64("protoparam"));
+    node.str("obfs-param", &b64("obfsparam"));
+    node.flag("udp", true);
+    Ok(node.0)
+}
+
+// ---------------------------------------------------------------------------
+// Hysteria / Hysteria2 / TUIC / AnyTLS / SOCKS / WireGuard
+// ---------------------------------------------------------------------------
+
+fn parse_hysteria(line: &str) -> Result<Mapping> {
+    let link = Link::parse(line)?;
+    let port = link.port_or(443)?;
+    let mut node = Node::new(&link.name_or("Hysteria", port), "hysteria", &link.host, port);
+    node.str("auth-str", link.q_any(&["auth", "auth_str"]));
+    node.str("sni", link.q_any(&["peer", "sni"]));
+    node.str("obfs", link.q("obfs"));
+    node.str("protocol", link.q("protocol"));
+    node.list("alpn", link.q("alpn"));
+    // mihomo refuses a hysteria node without bandwidth; use conservative
+    // defaults when the link leaves them out.
+    let up = link.q_any(&["up", "upmbps"]);
+    let down = link.q_any(&["down", "downmbps"]);
+    node.str("up", if up.is_empty() { "10" } else { up });
+    node.str("down", if down.is_empty() { "50" } else { down });
+    if parse_bool(link.q("insecure")) {
+        node.flag("skip-cert-verify", true);
+    }
+    Ok(node.0)
+}
+
+fn parse_hysteria2(line: &str) -> Result<Mapping> {
+    let link = Link::parse(line)?;
+    // port may be a hop list: `443,20000-30000` or `20000-30000`
+    let port_spec = link.port.clone().unwrap_or_default();
+    let first = port_spec.split([',', '-']).next().unwrap_or_default();
+    let port = if first.is_empty() { 443 } else { parse_port(first)? };
+    let mut node = Node::new(&link.name_or("Hysteria2", port), "hysteria2", &link.host, port);
+
+    let password = url_decode(&link.user);
+    node.str("password", if password.is_empty() { link.q("auth") } else { &password });
+    if port_spec.contains([',', '-']) {
+        node.str("ports", &port_spec);
+    } else {
+        node.str("ports", link.q("mport"));
+    }
+    node.str("sni", link.q_any(&["sni", "peer"]));
+    let obfs = link.q("obfs");
+    if obfs != "none" {
+        node.str("obfs", obfs);
+        node.str("obfs-password", link.q("obfs-password"));
+    }
+    if parse_bool(link.q("insecure")) {
+        node.flag("skip-cert-verify", true);
+    }
+    node.str("fingerprint", link.q("pinSHA256"));
+    node.list("alpn", link.q("alpn"));
+    node.str("up", link.q("up"));
+    node.str("down", link.q("down"));
+    Ok(node.0)
+}
+
+fn parse_tuic(line: &str) -> Result<Mapping> {
+    let link = Link::parse(line)?;
+    let port = link.port_or(443)?;
+    let mut node = Node::new(&link.name_or("TUIC", port), "tuic", &link.host, port);
+    match link.user.split_once(':') {
+        Some((uuid, password)) => {
+            node.str("uuid", &url_decode(uuid));
+            node.str("password", &url_decode(password));
+        }
+        // TUIC v4 links carry a token instead of uuid:password
+        None if !link.user.is_empty() => node.str("token", &url_decode(&link.user)),
+        None => bail!("missing uuid:password"),
+    }
+    node.flag("udp", true);
+    node.str(
+        "congestion-controller",
+        link.q_any(&["congestion_control", "congestion-controller", "congestion"]),
+    );
+    node.str("udp-relay-mode", link.q_any(&["udp_relay_mode", "udp-relay-mode"]));
+    node.list("alpn", link.q("alpn"));
+    node.str("sni", link.q("sni"));
+    if parse_bool(link.q_any(&["disable_sni", "disable-sni"])) {
+        node.flag("disable-sni", true);
+    }
+    if parse_bool(link.q_any(&["allow_insecure", "allowInsecure", "insecure", "skip-cert-verify"])) {
+        node.flag("skip-cert-verify", true);
+    }
+    Ok(node.0)
+}
+
+fn parse_anytls(line: &str) -> Result<Mapping> {
+    let link = Link::parse(line)?;
+    let port = link.port_or(443)?;
+    let mut node = Node::new(&link.name_or("AnyTLS", port), "anytls", &link.host, port);
+    let (user, password) = match link.user.split_once(':') {
+        Some((u, p)) => (url_decode(u), url_decode(p)),
+        None => (url_decode(&link.user), url_decode(&link.user)),
+    };
+    if password.is_empty() {
+        bail!("missing password");
+    }
+    node.str("username", &user);
+    node.str("password", &password);
+    node.str("sni", link.q("sni"));
+    node.str("fingerprint", link.q("hpkp"));
+    node.str("client-fingerprint", link.q("fp"));
+    if parse_bool(link.q("insecure")) {
+        node.flag("skip-cert-verify", true);
+    }
+    node.flag("udp", true);
+    Ok(node.0)
+}
+
+fn parse_socks(line: &str) -> Result<Mapping> {
+    let link = Link::parse(line)?;
+    let port = parse_port(link.port.as_deref().unwrap_or_default())?;
+    let mut node = Node::new(&link.name_or("SOCKS5", port), "socks5", &link.host, port);
+    if !link.user.is_empty() {
+        // user info is either `user:pass` or Base64(`user:pass`)
+        let raw = url_decode(&link.user);
+        let info = if raw.contains(':') {
+            raw
+        } else {
+            b64_decode_or_raw(&raw)
+        };
+        let (user, pass) = info.split_once(':').unwrap_or((info.as_str(), ""));
+        node.str("username", user);
+        node.str("password", pass);
+    }
+    node.flag("udp", true);
+    Ok(node.0)
+}
+
+/// `wireguard://privatekey@host:port?publickey=..&address=..&mtu=..&reserved=..`
+fn parse_wireguard(line: &str) -> Result<Mapping> {
+    let link = Link::parse(line)?;
+    let port = link.port_or(51820)?;
+    let mut node = Node::new(&link.name_or("WireGuard", port), "wireguard", &link.host, port);
+    let private_key = url_decode(&link.user);
+    let public_key = link.q_any(&["publickey", "public-key", "peer-public-key"]);
+    if private_key.is_empty() || public_key.is_empty() {
+        bail!("wireguard link needs a private key and a publickey");
+    }
+    node.str("private-key", &private_key);
+    node.str("public-key", public_key);
+    node.str("pre-shared-key", link.q_any(&["presharedkey", "pre-shared-key"]));
+    for addr in link.q_any(&["address", "ip"]).split(',').map(str::trim) {
+        let ip = addr.split('/').next().unwrap_or_default();
+        if ip.contains(':') {
+            node.str("ipv6", ip);
+        } else {
+            node.str("ip", ip);
+        }
+    }
+    if let Ok(mtu) = link.q("mtu").parse::<u16>() {
+        node.set("mtu", Value::Number(mtu.into()));
+    }
+    let reserved: Vec<Value> = link
+        .q("reserved")
+        .split(',')
+        .filter_map(|n| n.trim().parse::<u8>().ok())
+        .map(|n| Value::Number(n.into()))
+        .collect();
+    if reserved.len() == 3 {
+        node.set("reserved", Value::Sequence(reserved));
+    }
+    node.flag("udp", true);
+    Ok(node.0)
+}
+
+// ---------------------------------------------------------------------------
+// Names
+// ---------------------------------------------------------------------------
+
+/// Ensure every proxy has a unique, non-empty `name`.
+fn dedupe_proxy_names(proxies: &mut [Mapping]) {
+    let mut used: HashSet<String> = HashSet::new();
+    for proxy in proxies.iter_mut() {
+        let original = proxy
+            .get("name")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+            .unwrap_or("Node")
+            .to_owned();
+        let mut candidate = original.clone();
+        let mut n = 2;
+        while !used.insert(candidate.clone()) {
+            candidate = format!("{original} #{n}");
+            n += 1;
+        }
+        proxy.insert(s("name"), Value::String(candidate));
+    }
+}
+
+/// Rename duplicate proxies in place and return, per original name, the names
+/// assigned to its successive occurrences.
+fn rename_duplicate_proxies(proxies: &mut [Value]) -> HashMap<String, Vec<String>> {
+    let mut occurrences: HashMap<String, Vec<String>> = HashMap::new();
+    for proxy in proxies.iter_mut() {
+        let Some(m) = proxy.as_mapping_mut() else { continue };
+        let Some(name) = m.get("name").and_then(|v| v.as_str()).map(str::to_owned) else {
+            continue;
+        };
+        let assigned = occurrences.entry(name.clone()).or_default();
+        let new_name = if assigned.is_empty() {
+            name
+        } else {
+            let renamed = format!("{name} #{}", assigned.len() + 1);
+            m.insert(s("name"), s(&renamed));
+            renamed
+        };
+        assigned.push(new_name);
+    }
+    occurrences
+}
+
+fn rewrite_group_refs(list: &mut [Value], occurrences: &HashMap<String, Vec<String>>) {
+    let mut cursor: HashMap<String, usize> = HashMap::new();
+    for entry in list.iter_mut() {
+        let Some(ref_name) = entry.as_str().map(str::to_owned) else {
+            continue;
+        };
+        let Some(assigned) = occurrences.get(&ref_name).filter(|a| a.len() > 1) else {
+            continue;
+        };
+        let idx = cursor.entry(ref_name).or_insert(0);
+        if let Some(new_name) = assigned.get(*idx) {
+            *entry = s(new_name);
+            *idx += 1;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Config builder
+// ---------------------------------------------------------------------------
+
+fn non_empty_seq(v: Option<&Value>) -> bool {
+    v.and_then(|v| v.as_sequence()).is_some_and(|s| !s.is_empty())
+}
+
+fn first_group_name(root: &Mapping) -> Option<String> {
+    root.get("proxy-groups")?
+        .as_sequence()?
+        .iter()
+        .find_map(|g| g.get("name").and_then(|n| n.as_str()).map(str::to_owned))
+}
+
+/// An auto-select group plus a manual one. DIRECT is offered in the manual
+/// group so traffic can be sent outside the tunnel without a separate group.
+fn default_groups(proxy_names: Vec<Value>, providers: &[Value]) -> Vec<Value> {
+    let mut auto = mapping(&[
+        ("name", s(AUTO_GROUP)),
+        ("type", s("url-test")),
+        ("url", s("http://www.gstatic.com/generate_204")),
+        ("interval", Value::Number(300u64.into())),
+        ("tolerance", Value::Number(50u64.into())),
+    ]);
+    let mut manual = mapping(&[("name", s(MANUAL_GROUP)), ("type", s("select"))]);
+
+    let mut manual_list = vec![s(AUTO_GROUP)];
+    manual_list.extend(proxy_names.iter().cloned());
+    manual_list.push(s("DIRECT"));
+    if proxy_names.is_empty() {
+        // provider-only config: url-test needs at least one member, which
+        // `use` provides; DIRECT keeps it valid if a provider is empty.
+        auto.insert(s("proxies"), Value::Sequence(vec![s("DIRECT")]));
+    } else {
+        auto.insert(s("proxies"), Value::Sequence(proxy_names));
+    }
+    manual.insert(s("proxies"), Value::Sequence(manual_list));
+    if !providers.is_empty() {
+        auto.insert(s("use"), Value::Sequence(providers.to_vec()));
+        manual.insert(s("use"), Value::Sequence(providers.to_vec()));
+    }
+    vec![Value::Mapping(auto), Value::Mapping(manual)]
+}
+
+/// Loopback/LAN/private traffic must stay DIRECT or local network access
+/// (printers, routers, NAS, localhost dev servers) breaks once the tunnel is
+/// up. Everything else falls through to `target`. Users layer their own
+/// site/app rules on top via the Rules enhancement (`prepend`).
+fn default_rules(target: &str) -> Value {
+    let mut rules: Vec<Value> = [
+        "DOMAIN-SUFFIX,local,DIRECT",
+        "IP-CIDR,127.0.0.0/8,DIRECT,no-resolve",
+        "IP-CIDR,10.0.0.0/8,DIRECT,no-resolve",
+        "IP-CIDR,172.16.0.0/12,DIRECT,no-resolve",
+        "IP-CIDR,192.168.0.0/16,DIRECT,no-resolve",
+        "IP-CIDR,169.254.0.0/16,DIRECT,no-resolve",
+        "IP-CIDR6,fc00::/7,DIRECT,no-resolve",
+        "IP-CIDR6,fe80::/10,DIRECT,no-resolve",
+    ]
+    .iter()
+    .map(|r| s(r))
+    .collect();
+    rules.push(Value::String(format!("MATCH,{target}")));
+    Value::Sequence(rules)
+}
 
 fn build_clash_yaml(proxies: Vec<Mapping>) -> Result<String> {
     let proxy_names: Vec<Value> = proxies.iter().filter_map(|p| p.get("name").cloned()).collect();
 
-    let proxies_val: Value = Value::Sequence(proxies.into_iter().map(Value::Mapping).collect());
-
-    // Minimal url-test group
-    let mut group = Mapping::new();
-    insert_str(&mut group, "name", "Subscription");
-    insert_str(&mut group, "type", "url-test");
-    insert_val(&mut group, "proxies", Value::Sequence(proxy_names.clone()));
-    insert_str(&mut group, "url", "http://www.gstatic.com/generate_204");
-    insert_val(&mut group, "interval", Value::Number(300u64.into()));
-
-    // Manual select group. DIRECT is included so a rule (or the user) can send
-    // traffic outside the tunnel without needing a separate group.
-    let mut select_group = Mapping::new();
-    insert_str(&mut select_group, "name", "Manual");
-    insert_str(&mut select_group, "type", "select");
-    let mut manual_proxies = vec![Value::String("Subscription".to_owned())];
-    manual_proxies.extend(proxy_names);
-    manual_proxies.push(Value::String("DIRECT".to_owned()));
-    insert_val(&mut select_group, "proxies", Value::Sequence(manual_proxies));
-
-    let groups_val = Value::Sequence(vec![Value::Mapping(group), Value::Mapping(select_group)]);
-
-    // Default rules. Loopback/LAN/private traffic must stay DIRECT or local
-    // network access (printers, routers, NAS, localhost dev servers) breaks
-    // once the tunnel is up. Everything else falls through to the proxy.
-    //
-    // Users layer their own site/app rules on top via the Rules enhancement
-    // (`prepend`), which is inserted *above* these — see utils::tmpl::ITEM_RULES.
-    let rules_val = Value::Sequence(
-        [
-            "DOMAIN-SUFFIX,local,DIRECT",
-            "IP-CIDR,127.0.0.0/8,DIRECT,no-resolve",
-            "IP-CIDR,10.0.0.0/8,DIRECT,no-resolve",
-            "IP-CIDR,172.16.0.0/12,DIRECT,no-resolve",
-            "IP-CIDR,192.168.0.0/16,DIRECT,no-resolve",
-            "IP-CIDR6,fc00::/7,DIRECT,no-resolve",
-            "GEOIP,private,DIRECT,no-resolve",
-            "MATCH,Manual",
-        ]
-        .iter()
-        .map(|r| Value::String((*r).to_owned()))
-        .collect(),
-    );
-
     let mut root = Mapping::new();
-    root.insert(Value::String("proxies".to_owned()), proxies_val);
-    root.insert(Value::String("proxy-groups".to_owned()), groups_val);
-    root.insert(Value::String("rules".to_owned()), rules_val);
+    root.insert(
+        s("proxies"),
+        Value::Sequence(proxies.into_iter().map(Value::Mapping).collect()),
+    );
+    root.insert(s("proxy-groups"), Value::Sequence(default_groups(proxy_names, &[])));
+    root.insert(s("rules"), default_rules(MANUAL_GROUP));
     // Required for PROCESS-NAME / PROCESS-PATH rules (per-application routing)
     // to match. mihomo's default (`strict`) skips process lookup in cases where
     // app rules would otherwise silently never fire.
-    root.insert(
-        Value::String("find-process-mode".to_owned()),
-        Value::String("always".to_owned()),
-    );
+    root.insert(s("find-process-mode"), s("always"));
 
     serde_yaml_ng::to_string(&Value::Mapping(root)).context("failed to serialize Clash YAML")
 }
@@ -1000,207 +1452,5 @@ fn build_clash_yaml(proxies: Vec<Mapping>) -> Result<String> {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-mod tests {
-    #![allow(
-        clippy::unwrap_used,
-        clippy::expect_used,
-        clippy::bool_assert_comparison,
-        clippy::needless_raw_string_hashes,
-        clippy::useless_vec
-    )]
-    use super::*;
-
-    #[test]
-    fn test_vmess_v2rayn() {
-        // {"add":"1.2.3.4","port":"443","id":"uuid-here","aid":"0","net":"ws","type":"none","host":"example.com","path":"/ws","tls":"tls","sni":"example.com","ps":"Test VMess"}
-        let payload = r#"{"add":"1.2.3.4","port":"443","id":"uuid-here","aid":"0","net":"ws","host":"example.com","path":"/ws","tls":"tls","sni":"example.com","ps":"Test VMess"}"#;
-        let encoded = general_purpose::STANDARD.encode(payload);
-        let uri = format!("vmess://{encoded}");
-        let result = parse_vmess(&uri).unwrap();
-        assert_eq!(result["name"].as_str().unwrap(), "Test VMess");
-        assert_eq!(result["type"].as_str().unwrap(), "vmess");
-        assert_eq!(result["server"].as_str().unwrap(), "1.2.3.4");
-        assert_eq!(result["tls"].as_bool().unwrap(), true);
-    }
-
-    #[test]
-    fn test_vless_basic() {
-        let uri =
-            "vless://uuid-1234@1.2.3.4:443?security=tls&sni=example.com&type=ws&path=/ws&host=example.com#Test+VLESS";
-        let result = parse_vless(uri).unwrap();
-        assert_eq!(result["type"].as_str().unwrap(), "vless");
-        assert_eq!(result["server"].as_str().unwrap(), "1.2.3.4");
-        assert_eq!(result["uuid"].as_str().unwrap(), "uuid-1234");
-        assert_eq!(result["tls"].as_bool().unwrap(), true);
-    }
-
-    #[test]
-    fn test_trojan_basic() {
-        let uri = "trojan://password123@1.2.3.4:443?sni=example.com#Test+Trojan";
-        let result = parse_trojan(uri).unwrap();
-        assert_eq!(result["type"].as_str().unwrap(), "trojan");
-        assert_eq!(result["password"].as_str().unwrap(), "password123");
-        assert_eq!(result["sni"].as_str().unwrap(), "example.com");
-    }
-
-    #[test]
-    fn test_ss_sip002() {
-        // ss://YWVzLTEyOC1nY206cGFzc3dvcmQ=@1.2.3.4:8388#Test+SS
-        let user_info = general_purpose::STANDARD.encode("aes-128-gcm:password");
-        let uri = format!("ss://{user_info}@1.2.3.4:8388#Test SS");
-        let result = parse_ss(&uri).unwrap();
-        assert_eq!(result["type"].as_str().unwrap(), "ss");
-        assert_eq!(result["cipher"].as_str().unwrap(), "aes-128-gcm");
-        assert_eq!(result["password"].as_str().unwrap(), "password");
-    }
-
-    #[test]
-    fn test_hysteria2_basic() {
-        let uri = "hysteria2://mypassword@1.2.3.4:443?sni=example.com&insecure=0#Test+HY2";
-        let result = parse_hysteria2(uri).unwrap();
-        assert_eq!(result["type"].as_str().unwrap(), "hysteria2");
-        assert_eq!(result["password"].as_str().unwrap(), "mypassword");
-        assert_eq!(result["sni"].as_str().unwrap(), "example.com");
-    }
-
-    #[test]
-    fn test_tuic_basic() {
-        let uri = "tuic://uuid-123:password@1.2.3.4:443?congestion-controller=bbr&sni=example.com#Test+TUIC";
-        let result = parse_tuic(uri).unwrap();
-        assert_eq!(result["type"].as_str().unwrap(), "tuic");
-        assert_eq!(result["uuid"].as_str().unwrap(), "uuid-123");
-        assert_eq!(result["password"].as_str().unwrap(), "password");
-        assert_eq!(result["congestion-controller"].as_str().unwrap(), "bbr");
-    }
-
-    #[test]
-    fn test_b64_subscription() {
-        let uris = vec![
-            "vless://uuid-abc@1.2.3.4:443?security=tls&sni=a.com#Node1",
-            "trojan://pass@5.6.7.8:443?sni=b.com#Node2",
-        ];
-        let joined = uris.join("\n");
-        let encoded = general_purpose::STANDARD.encode(&joined);
-        let result = try_convert_txt_to_yaml(&encoded).unwrap().unwrap();
-        assert!(result.contains("proxies:"));
-        assert!(result.contains("Node1"));
-        assert!(result.contains("Node2"));
-    }
-
-    #[test]
-    fn test_generated_config_supports_split_routing() {
-        let uris = vec!["trojan://pass@1.1.1.1:443?sni=a.com#Node1"];
-        let encoded = general_purpose::STANDARD.encode(uris.join("\n"));
-        let yaml = try_convert_txt_to_yaml(&encoded).unwrap().unwrap();
-        let parsed: Value = serde_yaml_ng::from_str(&yaml).expect("generated config must be valid YAML");
-
-        // Per-app (PROCESS-NAME) rules only match when process lookup is forced.
-        assert_eq!(parsed["find-process-mode"].as_str(), Some("always"));
-
-        let rules: Vec<&str> = parsed["rules"]
-            .as_sequence()
-            .expect("rules must be a sequence")
-            .iter()
-            .filter_map(|r| r.as_str())
-            .collect();
-
-        // LAN/loopback must bypass the tunnel, and it has to be decided before
-        // the catch-all or local network access breaks.
-        assert!(rules.iter().any(|r| r.starts_with("IP-CIDR,192.168.0.0/16,DIRECT")));
-        assert_eq!(rules.last(), Some(&"MATCH,Manual"));
-        let first_match = rules.iter().position(|r| r.starts_with("MATCH,")).unwrap();
-        assert!(
-            rules[..first_match]
-                .iter()
-                .all(|r| r.ends_with("DIRECT") || r.contains(",DIRECT,")),
-            "every rule above the catch-all should be a DIRECT bypass"
-        );
-
-        // DIRECT must be selectable so traffic can be sent outside the tunnel.
-        let manual = parsed["proxy-groups"]
-            .as_sequence()
-            .unwrap()
-            .iter()
-            .find(|g| g["name"].as_str() == Some("Manual"))
-            .expect("Manual group must exist");
-        assert!(
-            manual["proxies"]
-                .as_sequence()
-                .unwrap()
-                .iter()
-                .any(|p| p.as_str() == Some("DIRECT"))
-        );
-    }
-
-    #[test]
-    fn test_duplicate_names_deduped() {
-        let uris = vec![
-            "trojan://pass@1.1.1.1:443?sni=a.com#DE",
-            "trojan://pass@2.2.2.2:443?sni=b.com#DE",
-            "trojan://pass@3.3.3.3:443?sni=c.com#DE",
-        ];
-        let joined = uris.join("\n");
-        let encoded = general_purpose::STANDARD.encode(&joined);
-        let result = try_convert_txt_to_yaml(&encoded).unwrap().unwrap();
-        // All three names must be distinct in the output
-        assert!(result.contains("name: DE\n") || result.contains("name: DE\r"));
-        assert!(result.contains("DE #2"));
-        assert!(result.contains("DE #3"));
-    }
-
-    #[test]
-    fn test_dedupe_clash_yaml_with_groups() {
-        let yaml = r#"
-proxy-groups:
-- name: Auto
-  type: url-test
-  proxies:
-  - A
-  - CZ
-  - B
-  - CZ
-proxies:
-- name: A
-  type: ss
-  server: 1.1.1.1
-  port: 1
-- name: CZ
-  type: ss
-  server: 2.2.2.2
-  port: 2
-- name: B
-  type: ss
-  server: 3.3.3.3
-  port: 3
-- name: CZ
-  type: ss
-  server: 4.4.4.4
-  port: 4
-"#;
-        let out = dedupe_clash_yaml(yaml).unwrap().expect("should dedupe");
-        // Second CZ proxy renamed
-        assert!(out.contains("CZ #2"));
-        // The group must reference both the original and renamed node
-        let parsed: Value = serde_yaml_ng::from_str(&out).unwrap();
-        let group_proxies = parsed["proxy-groups"][0]["proxies"]
-            .as_sequence()
-            .unwrap()
-            .iter()
-            .map(|v| v.as_str().unwrap().to_owned())
-            .collect::<Vec<_>>();
-        assert_eq!(group_proxies, vec!["A", "CZ", "B", "CZ #2"]);
-    }
-
-    #[test]
-    fn test_dedupe_clash_yaml_no_dupes_returns_none() {
-        let yaml = "proxies:\n  - name: A\n    type: ss\n    server: 1.1.1.1\n    port: 1\n";
-        assert!(dedupe_clash_yaml(yaml).unwrap().is_none());
-    }
-
-    #[test]
-    fn test_plain_yaml_passthrough() {
-        let yaml = "proxies:\n  - name: test\n    type: ss\n";
-        let result = try_convert_txt_to_yaml(yaml).unwrap();
-        assert!(result.is_none(), "plain YAML should not be converted");
-    }
-}
+#[path = "proxy_parser_tests.rs"]
+mod tests;

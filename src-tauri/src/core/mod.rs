@@ -2,6 +2,7 @@ pub mod autostart;
 pub mod backup;
 pub mod handle;
 pub mod hotkey;
+pub mod import_check;
 pub mod logger;
 pub mod manager;
 mod notification;

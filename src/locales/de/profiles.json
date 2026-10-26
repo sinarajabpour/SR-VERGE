@@ -35,6 +35,7 @@
         "importRetry": "Import des Abonnements fehlgeschlagen. Versuche es mit dem Clash-Proxy erneut...",
         "importFail": "Import des Abonnements auch mit Clash-Proxy fehlgeschlagen",
         "importNeedsRefresh": "Profile imported but may need manual refresh",
+        "importSkippedNodes": "These servers can't be used by the core and were skipped",
         "importSuccess": "Profile imported successfully, please restart if not visible",
         "profileSwitched": "Abonnement gewechselt",
         "profileReactivated": "Abonnement erneut aktiviert",

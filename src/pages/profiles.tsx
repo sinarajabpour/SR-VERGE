@@ -290,12 +290,36 @@ const ProfilePage = () => {
   }
 
   // raw proxy URI schemes that can be imported directly (no subscription link)
-  const PROXY_URI_RE = /^(vmess|vless|trojan|ss|ssr|hysteria2|hy2|tuic):\/\//i
+  const PROXY_URI_RE =
+    /^(vmess|vless|trojan|ss|ssr|hysteria|hysteria2|hy2|tuic|anytls|socks|socks5|socks5h|wireguard|wg):\/\//i
+  // a pasted Base64 share-link list (the body of a V2Ray subscription)
+  const BASE64_BLOB_RE = /^[A-Za-z0-9+/_\-=\s]{16,}$/
+
+  // Subscription links wrapped in app deep links:
+  //   clash://install-config?url=…, clashmeta://…, sub://BASE64(url), hiddify://import/URL
+  const unwrapSubscriptionLink = (input: string) => {
+    try {
+      if (/^(clash|clashmeta|mihomo):\/\//i.test(input)) {
+        const inner = new URL(input).searchParams.get('url')
+        if (inner) return inner.trim()
+      }
+      if (/^sub:\/\//i.test(input)) {
+        const encoded = input.slice(6).split('#')[0]
+        const decoded = atob(encoded.replace(/-/g, '+').replace(/_/g, '/'))
+        if (/^https?:\/\//i.test(decoded)) return decoded.trim()
+      }
+      const hiddify = input.match(/^hiddify:\/\/import\/(.+)$/i)
+      if (hiddify) return decodeURIComponent(hiddify[1].split('#')[0]).trim()
+    } catch (err) {
+      console.warn('[subscription import] could not unwrap link:', err)
+    }
+    return input
+  }
 
   const onImport = async () => {
     if (!url) return
 
-    const trimmed = url.trim()
+    const trimmed = unwrapSubscriptionLink(url.trim())
 
     const handleImportSuccess = async (noticeKey: string) => {
       showNotice.success(noticeKey)
@@ -304,7 +328,10 @@ const ProfilePage = () => {
     }
 
     // direct single/multi proxy-URI import (no subscription link)
-    if (PROXY_URI_RE.test(trimmed)) {
+    if (
+      PROXY_URI_RE.test(trimmed) ||
+      (!/^https?:\/\//i.test(trimmed) && BASE64_BLOB_RE.test(trimmed))
+    ) {
       setLoading(true)
       try {
         const yaml = await convertProxyUri(trimmed)
@@ -330,7 +357,7 @@ const ProfilePage = () => {
     }
 
     // 校验url是否为http/https
-    if (!/^https?:\/\//i.test(url)) {
+    if (!/^https?:\/\//i.test(trimmed)) {
       showNotice.error('profiles.page.feedback.errors.invalidUrl')
       return
     }
@@ -338,7 +365,7 @@ const ProfilePage = () => {
 
     try {
       // 尝试正常导入
-      await importProfile(url)
+      await importProfile(trimmed)
       await handleImportSuccess('shared.feedback.notifications.importSuccess')
     } catch (initialErr) {
       console.warn('[订阅导入] 首次导入失败:', initialErr)
@@ -351,7 +378,7 @@ const ProfilePage = () => {
       showNotice.info('profiles.page.feedback.notifications.importRetry')
       try {
         // 使用自身代理尝试导入
-        await importProfile(url, {
+        await importProfile(trimmed, {
           with_proxy: false,
           self_proxy: true,
         })

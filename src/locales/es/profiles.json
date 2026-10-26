@@ -35,6 +35,7 @@
         "importRetry": "Error al importar la suscripción. Intentando con el proxy de Clash...",
         "importFail": "Error al importar incluso con el proxy de Clash",
         "importNeedsRefresh": "Profile imported but may need manual refresh",
+        "importSkippedNodes": "These servers can't be used by the core and were skipped",
         "importSuccess": "Profile imported successfully, please restart if not visible",
         "profileSwitched": "Suscripción cambiada",
         "profileReactivated": "Suscripción reactivada",
