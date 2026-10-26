@@ -1091,7 +1091,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "clash-verge"
-version = "2.5.8"
+version = "2.5.9"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -1226,8 +1226,8 @@ dependencies = [
 
 [[package]]
 name = "clash_verge_service_ipc"
-version = "2.3.0"
-source = "git+https://github.com/clash-verge-rev/clash-verge-service-ipc#808f730f90e8b905310187f8c7746eeff78d720e"
+version = "2.3.3"
+source = "git+https://github.com/clash-verge-rev/clash-verge-service-ipc?tag=v2.3.3#b964ed2992599fadefd589425c1acdabcb875623"
 dependencies = [
  "anyhow",
  "compact_str",

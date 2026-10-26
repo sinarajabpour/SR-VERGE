@@ -4,7 +4,7 @@
 <dict>
     <key>AssociatedBundleIdentifiers</key>
     <array>
-        <string>com.srverge.app.service</string>
+        <string>io.github.clash-verge-rev.clash-verge-rev.service</string>
     </array>
 </dict>
 </plist>
