@@ -547,6 +547,65 @@ fn cleanup_proxy_groups(mut config: Mapping) -> Mapping {
     config
 }
 
+/// Target policy of a rule line, or `None` for lines whose last field is not
+/// a policy (SUB-RULE) or that cannot be parsed.
+fn rule_target(rule: &str) -> Option<&str> {
+    let (kind, rest) = rule.trim().split_once(',')?;
+    let target = match kind.trim().to_ascii_uppercase().as_str() {
+        "MATCH" => rest.split(',').next()?,
+        "SUB-RULE" => return None,
+        // logic rules: AND,((DOMAIN,a),(NETWORK,UDP)),TARGET
+        "AND" | "OR" | "NOT" => rest[rest.rfind(')')? + 1..].trim_start_matches(',').split(',').next()?,
+        _ => rest.split_once(',')?.1.split(',').next()?,
+    };
+    Some(target.trim())
+}
+
+/// Drop rules whose target policy does not exist in this config.
+///
+/// mihomo rejects the whole config when one rule targets a missing group
+/// (`proxy [Manual] not found`). That happens when Global Rules written
+/// against one profile's group names are applied to another profile, so
+/// switching profiles would leave the user with no connection at all.
+fn cleanup_rules(mut config: Mapping) -> Mapping {
+    const BUILTIN_POLICIES: &[&str] = &["DIRECT", "REJECT", "REJECT-DROP", "PASS", "COMPATIBLE", "GLOBAL"];
+
+    let names = |key: &str| -> HashSet<std::string::String> {
+        config
+            .get(key)
+            .and_then(Value::as_sequence)
+            .map(|seq| {
+                seq.iter()
+                    .filter_map(|item| item.get("name").and_then(Value::as_str).map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let mut policies = names("proxies");
+    policies.extend(names("proxy-groups"));
+    policies.extend(BUILTIN_POLICIES.iter().map(|p| (*p).to_owned()));
+
+    if let Some(Value::Sequence(rules)) = config.get_mut("rules") {
+        rules.retain(|rule| {
+            let Some(target) = rule.as_str().and_then(rule_target) else {
+                return true;
+            };
+            let keep = policies.contains(target);
+            if !keep {
+                logging!(
+                    warn,
+                    Type::Core,
+                    "dropping rule `{}`: policy `{target}` does not exist in this profile",
+                    rule.as_str().unwrap_or_default()
+                );
+            }
+            keep
+        });
+    }
+
+    config
+}
+
 async fn apply_dns_settings(mut config: Mapping, enable_dns_settings: bool) -> Mapping {
     if enable_dns_settings && let Ok(app_dir) = dirs::app_home_dir() {
         let dns_path = app_dir.join(constants::files::DNS_CONFIG);
@@ -643,6 +702,7 @@ pub async fn enhance() -> Result<(Mapping, HashSet<String>, HashMap<String, Resu
     let mut config = apply_builtin_scripts(config, clash_core, enable_builtin).await;
 
     config = cleanup_proxy_groups(config);
+    config = cleanup_rules(config);
 
     config = use_tun(config, enable_tun);
     config = use_sort(config);
@@ -659,7 +719,55 @@ pub async fn enhance() -> Result<(Mapping, HashSet<String>, HashMap<String, Resu
 #[allow(clippy::expect_used)]
 #[cfg(test)]
 mod tests {
-    use super::cleanup_proxy_groups;
+    use super::{cleanup_proxy_groups, cleanup_rules, rule_target};
+
+    #[test]
+    fn rule_targets() {
+        assert_eq!(rule_target("DOMAIN-SUFFIX,ir,DIRECT"), Some("DIRECT"));
+        assert_eq!(rule_target("IP-CIDR6,fc00::/7,DIRECT,no-resolve"), Some("DIRECT"));
+        assert_eq!(rule_target("MATCH,Manual"), Some("Manual"));
+        assert_eq!(rule_target("PROCESS-NAME, Telegram.exe , 🚀 Proxy"), Some("🚀 Proxy"));
+        assert_eq!(rule_target("AND,((DOMAIN,a.com),(NETWORK,UDP)),REJECT"), Some("REJECT"));
+        assert_eq!(rule_target("SUB-RULE,(NETWORK,tcp),sub"), None);
+        assert_eq!(rule_target("garbage"), None);
+    }
+
+    #[test]
+    fn rules_with_missing_policies_are_dropped() {
+        let config: serde_yaml_ng::Mapping = serde_yaml_ng::from_str(
+            r#"
+proxies:
+  - {name: node, type: ss}
+proxy-groups:
+  - {name: "🚀 Proxy", type: select, proxies: [node]}
+rules:
+  - PROCESS-NAME,Telegram.exe,Manual
+  - DOMAIN-SUFFIX,ir,DIRECT
+  - DOMAIN,a.com,node
+  - GEOIP,IR,DIRECT,no-resolve
+  - SUB-RULE,(NETWORK,tcp),sub
+  - MATCH,🚀 Proxy
+"#,
+        )
+        .expect("valid yaml");
+        let out = cleanup_rules(config);
+        let rules: Vec<&str> = out["rules"]
+            .as_sequence()
+            .expect("rules")
+            .iter()
+            .filter_map(|r| r.as_str())
+            .collect();
+        assert_eq!(
+            rules,
+            vec![
+                "DOMAIN-SUFFIX,ir,DIRECT",
+                "DOMAIN,a.com,node",
+                "GEOIP,IR,DIRECT,no-resolve",
+                "SUB-RULE,(NETWORK,tcp),sub",
+                "MATCH,🚀 Proxy",
+            ]
+        );
+    }
 
     #[test]
     fn remove_missing_proxies_from_groups() {

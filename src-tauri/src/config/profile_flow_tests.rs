@@ -200,5 +200,121 @@ async fn import_select_update_and_delete_profiles() {
     let clash_file = dirs::app_profiles_dir().unwrap().join(clash.file.unwrap().as_str());
     assert!(!clash_file.exists(), "the deleted profile's file is removed");
 
+    // 7. rules: Iran preset in Global Rules + the user's own profile rules
+    rules_pipeline(&sub_uid).await;
+
     let _ = std::fs::remove_dir_all(&home);
+}
+
+/// What the Rules page "Iran Direct (Online List)" button writes to the
+/// Global Extend Config (see src/services/rule-presets.ts).
+const IRAN_PRESET_MERGE: &str = "rule-providers:
+  iran_domains:
+    type: http
+    behavior: domain
+    format: yaml
+    interval: 86400
+    url: https://github.com/bootmortis/iran-hosted-domains/releases/latest/download/clash_rules_other.yaml
+    path: ./ruleset/iran_domains.yaml
+prepend-rules:
+  - RULE-SET,iran_domains,DIRECT
+  - DOMAIN-SUFFIX,ir,DIRECT
+  - GEOSITE,category-ir,DIRECT
+  - GEOIP,IR,DIRECT,no-resolve
+";
+
+/// What a user writes in the profile's "Edit Rules" editor.
+const USER_RULES: &str = "prepend:
+  - DOMAIN-SUFFIX,bank.example,DIRECT
+  - PROCESS-NAME,Telegram.exe,Manual
+append: []
+delete: []
+";
+
+async fn write_item_file(uid: &str, content: &str) {
+    let item = current_profiles().await.get_item(uid).unwrap().clone();
+    let path = dirs::app_profiles_dir().unwrap().join(item.file.unwrap().as_str());
+    tokio::fs::write(path, content).await.unwrap();
+}
+
+async fn rules_pipeline(profile_uid: &String) {
+    // the app creates the global "Merge" item at startup
+    let mut merge = PrfItem::from_merge(Some("Merge".into())).unwrap();
+    profiles::profiles_append_item_safe(&mut merge).await.unwrap();
+    write_item_file("Merge", IRAN_PRESET_MERGE).await;
+    let rules_uid = current_profiles()
+        .await
+        .get_item(profile_uid)
+        .unwrap()
+        .option
+        .as_ref()
+        .and_then(|o| o.rules.clone())
+        .expect("imported profiles get a rules item");
+    write_item_file(&rules_uid, USER_RULES).await;
+
+    let (config, _, _) = crate::enhance::enhance().await.unwrap();
+    let rules: Vec<&str> = config
+        .get("rules")
+        .and_then(|r| r.as_sequence())
+        .unwrap()
+        .iter()
+        .filter_map(|r| r.as_str())
+        .collect();
+
+    // profile rules first, then the global preset, then the subscription's
+    // own rules ending in the catch-all
+    assert_eq!(
+        &rules[..6],
+        &[
+            "DOMAIN-SUFFIX,bank.example,DIRECT",
+            "PROCESS-NAME,Telegram.exe,Manual",
+            "RULE-SET,iran_domains,DIRECT",
+            "DOMAIN-SUFFIX,ir,DIRECT",
+            "GEOSITE,category-ir,DIRECT",
+            "GEOIP,IR,DIRECT,no-resolve",
+        ],
+        "{rules:#?}"
+    );
+    assert_eq!(rules.last(), Some(&"MATCH,Manual"));
+    assert_eq!(rules.iter().filter(|r| r.starts_with("MATCH,")).count(), 1);
+    assert!(config.get("prepend-rules").is_none(), "directive keys must not leak");
+    assert!(
+        config
+            .get("rule-providers")
+            .and_then(|p| p.get("iran_domains"))
+            .is_some()
+    );
+
+    mihomo_check(&config);
+}
+
+/// Load the final config in the real core when it is available:
+/// SR_VERGE_MIHOMO = mihomo binary, SR_VERGE_GEODATA = dir with geosite.dat
+/// and Country.mmdb (needed for the GEOSITE/GEOIP rules).
+fn mihomo_check(config: &serde_yaml_ng::Mapping) {
+    let (Ok(bin), Ok(geodata)) = (std::env::var("SR_VERGE_MIHOMO"), std::env::var("SR_VERGE_GEODATA")) else {
+        eprintln!("SR_VERGE_MIHOMO/SR_VERGE_GEODATA not set, skipping core check");
+        return;
+    };
+    let dir = std::env::temp_dir().join(format!("sr-verge-rules-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    for file in ["geosite.dat", "Country.mmdb"] {
+        std::fs::copy(std::path::Path::new(&geodata).join(file), dir.join(file)).unwrap();
+    }
+    let file = dir.join("config.yaml");
+    std::fs::write(&file, serde_yaml_ng::to_string(config).unwrap()).unwrap();
+    let out = std::process::Command::new(bin)
+        .args(["-t", "-d"])
+        .arg(&dir)
+        .arg("-f")
+        .arg(&file)
+        .output()
+        .unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(
+        out.status.success(),
+        "mihomo rejected the final config:\n{}{}",
+        std::string::String::from_utf8_lossy(&out.stdout),
+        std::string::String::from_utf8_lossy(&out.stderr)
+    );
 }

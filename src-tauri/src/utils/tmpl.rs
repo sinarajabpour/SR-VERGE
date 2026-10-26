@@ -44,7 +44,10 @@ pub const ITEM_RULES: &str = r#"# Profile Enhancement Rules Template for Clash V
 # Format:  TYPE,VALUE,TARGET
 #   TARGET = DIRECT  -> bypass the proxy (traffic goes out normally)
 #            REJECT  -> block it
-#            Manual  -> send through the proxy (any proxy-group name works)
+#            Manual  -> send through the proxy. "Manual" is the group SR Verge
+#                       creates for link/Base64 subscriptions; for other
+#                       profiles use one of their own proxy-group names.
+#                       A rule whose group is missing is skipped (see logs).
 #
 # The FIRST matching rule wins, so order matters.
 #
