@@ -3,6 +3,8 @@ mod clash;
 mod config;
 mod encrypt;
 mod prfitem;
+#[cfg(test)]
+mod profile_flow_tests;
 pub mod profiles;
 pub mod runtime;
 mod verge;

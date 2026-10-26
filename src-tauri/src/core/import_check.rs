@@ -5,13 +5,12 @@
 //! subscription would make every other server unusable. Before a profile is
 //! saved, run the core's own `-t` check and drop each proxy it rejects.
 
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use clash_verge_logging::{Type, logging};
 use std::path::PathBuf;
 use tauri_plugin_shell::ShellExt as _;
 
 use crate::config::Config;
-use crate::core::handle;
 use crate::utils::{dirs, proxy_parser};
 
 /// Upper bound on core runs, so a pathological subscription cannot stall
@@ -48,6 +47,8 @@ async fn prune_with_core(
     app_dir: &PathBuf,
     check_file: &PathBuf,
 ) -> Result<(String, Vec<String>)> {
+    // Not set outside the running app (e.g. in tests): nothing to check with.
+    let app_handle = crate::APP_HANDLE.get().context("app is not running")?;
     let app_dir = dirs::path_to_str(app_dir)?;
     let check_path = dirs::path_to_str(check_file)?;
     let mut config = original.to_owned();
@@ -55,7 +56,7 @@ async fn prune_with_core(
 
     for _ in 0..MAX_PRUNE_ROUNDS {
         tokio::fs::write(check_file, &config).await?;
-        let command = handle::Handle::app_handle()
+        let command = app_handle
             .shell()
             .sidecar(clash_core)?
             .args(["-t", "-d", app_dir, "-f", check_path]);
