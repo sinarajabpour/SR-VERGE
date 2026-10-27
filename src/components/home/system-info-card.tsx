@@ -91,7 +91,8 @@ export const SystemInfoCard = () => {
   // 点击运行模式处理,Sidecar或纯管理员模式允许安装服务
   const handleRunningModeClick = useCallback(() => {
     if (isSidecarMode || (isAdminMode && isSidecarMode)) {
-      installServiceAndRestartCore()
+      // errors are already shown by useServiceInstaller
+      installServiceAndRestartCore().catch(() => {})
     }
   }, [isSidecarMode, isAdminMode, installServiceAndRestartCore])
 

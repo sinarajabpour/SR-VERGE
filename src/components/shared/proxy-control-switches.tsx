@@ -162,8 +162,8 @@ const ProxyControlSwitches = ({
     try {
       await installServiceAndRestartCore()
       await mutateSystemState()
-    } catch (err) {
-      showNotice.error(err)
+    } catch {
+      // useServiceInstaller has already shown the error
     }
   })
 
@@ -174,8 +174,8 @@ const ProxyControlSwitches = ({
       }
       await uninstallServiceAndRestartCore()
       await mutateSystemState()
-    } catch (err) {
-      showNotice.error(err)
+    } catch {
+      // useServiceUninstaller has already shown the error
     }
   })
 

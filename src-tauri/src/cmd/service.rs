@@ -5,8 +5,15 @@ async fn execute_service_operation_sync(status: ServiceStatus, op_type: &str) ->
     SERVICE_MANAGER
         .handle_service_status(status)
         .await
-        .map_err(|e| format!("{op_type} Service failed: {e}").into())
+        .map_err(|e| format!("{op_type} Service failed: {e}{}", ADMIN_HINT).into())
 }
+
+/// On Windows the core can create the TUN adapter itself when the app runs
+/// elevated, so the service is not the only way to get TUN mode.
+#[cfg(target_os = "windows")]
+const ADMIN_HINT: &str = ". You can also run SR Verge as administrator to use TUN mode without the service.";
+#[cfg(not(target_os = "windows"))]
+const ADMIN_HINT: &str = "";
 
 #[tauri::command]
 pub async fn install_service() -> CmdResult {

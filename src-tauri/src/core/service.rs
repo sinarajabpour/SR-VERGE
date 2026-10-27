@@ -305,6 +305,35 @@ fn install_service() -> Result<()> {
     Ok(())
 }
 
+/// Windows keeps a deleted service "marked for deletion" until its process
+/// has exited; creating it again before then fails with
+/// ERROR_SERVICE_MARKED_FOR_DELETE (1072). Wait until `sc query` reports the
+/// service as gone (ERROR_SERVICE_DOES_NOT_EXIST, 1060), for up to 10 seconds.
+#[cfg(target_os = "windows")]
+fn wait_for_service_removed() {
+    use std::os::windows::process::CommandExt as _;
+
+    for _ in 0..40 {
+        let gone = StdCommand::new("sc")
+            .args(["query", "clash_verge_service"])
+            .creation_flags(0x08000000)
+            .output()
+            .map_or(true, |o| o.status.code() == Some(1060));
+        if gone {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+    logging!(
+        warn,
+        Type::Service,
+        "old service still present after uninstall, installing anyway"
+    );
+}
+
+#[cfg(not(target_os = "windows"))]
+const fn wait_for_service_removed() {}
+
 fn check_output_error(output: &std::process::Output) -> Option<(i32, Cow<'_, str>)> {
     if output.status.success() {
         return None;
@@ -328,6 +357,7 @@ fn reinstall_service() -> Result<()> {
     if let Err(err) = uninstall_service() {
         logging!(warn, Type::Service, "failed to uninstall service: {}", err);
     }
+    wait_for_service_removed();
 
     // 再安装服务
     match install_service() {
