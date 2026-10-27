@@ -661,6 +661,10 @@ struct TransportParams<'a> {
     mode: &'a str,
     early_data: &'a str,
     early_data_header: &'a str,
+    /// XHTTP `extra` JSON (Xray share-link standard)
+    xhttp_extra: &'a str,
+    /// XHTTP padding range given as its own query parameter
+    x_padding_bytes: &'a str,
 }
 
 /// Split `?ed=2048` (WebSocket early data) off a path.
@@ -719,13 +723,7 @@ fn apply_transport(node: &mut Node, p: &TransportParams<'_>) -> Result<()> {
             node.str("network", "grpc");
             node.map("grpc-opts", mapping(&[("grpc-service-name", s(p.service_name))]));
         }
-        "xhttp" | "splithttp" => {
-            node.str("network", "xhttp");
-            node.map(
-                "xhttp-opts",
-                mapping(&[("path", s(p.path)), ("host", s(host)), ("mode", s(p.mode))]),
-            );
-        }
+        "xhttp" | "splithttp" => apply_xhttp(node, p, host),
         other => bail!("transport `{other}` is not supported by the mihomo core"),
     }
     Ok(())
@@ -754,6 +752,121 @@ fn apply_ws(node: &mut Node, p: &TransportParams<'_>, host: &str, http_upgrade: 
         opts.insert(s("early-data-header-name"), s(header));
     }
     node.map("ws-opts", opts);
+}
+
+/// XHTTP options, matching how Xray reads the share link.
+///
+/// Xray treats everything after `?` in an XHTTP path as an optional query
+/// and sends requests to the bare path (`/search?=` → `/search/<session>`).
+/// mihomo puts the whole string in the URL path, where Go escapes the `?`
+/// (`/search%3F=/<session>`), so the server never sees a matching path and
+/// every connection times out. Keep only the path part.
+fn apply_xhttp(node: &mut Node, p: &TransportParams<'_>, host: &str) {
+    node.str("network", "xhttp");
+    let path = p.path.split('?').next().unwrap_or_default();
+    let mut opts = mapping(&[("path", s(path)), ("host", s(host)), ("mode", s(p.mode))]);
+    if let Ok(serde_json::Value::Object(extra)) = serde_json::from_str::<serde_json::Value>(p.xhttp_extra) {
+        apply_xhttp_extra(&mut opts, &extra);
+    }
+    if !p.x_padding_bytes.is_empty() && !opts.contains_key("x-padding-bytes") {
+        opts.insert(s("x-padding-bytes"), s(p.x_padding_bytes));
+    }
+    node.map("xhttp-opts", opts);
+}
+
+/// Map Xray's XHTTP `extra` JSON onto mihomo `xhttp-opts` (mirrors mihomo's
+/// own converter, `common/convert/v.go`).
+fn apply_xhttp_extra(opts: &mut Mapping, extra: &serde_json::Map<String, serde_json::Value>) {
+    use serde_json::Value as J;
+
+    const STRINGS: &[(&str, &str)] = &[
+        ("xPaddingBytes", "x-padding-bytes"),
+        ("xPaddingKey", "x-padding-key"),
+        ("xPaddingHeader", "x-padding-header"),
+        ("xPaddingPlacement", "x-padding-placement"),
+        ("xPaddingMethod", "x-padding-method"),
+        ("uplinkHTTPMethod", "uplink-http-method"),
+        ("sessionPlacement", "session-placement"),
+        ("sessionIDPlacement", "session-placement"),
+        ("sessionKey", "session-key"),
+        ("sessionIDKey", "session-key"),
+        ("seqPlacement", "seq-placement"),
+        ("seqKey", "seq-key"),
+        ("uplinkDataPlacement", "uplink-data-placement"),
+        ("uplinkDataKey", "uplink-data-key"),
+    ];
+    const NUMBERS: &[(&str, &str)] = &[
+        ("uplinkChunkSize", "uplink-chunk-size"),
+        ("scMaxEachPostBytes", "sc-max-each-post-bytes"),
+        ("scMinPostsIntervalMs", "sc-min-posts-interval-ms"),
+    ];
+
+    for (from, to) in STRINGS {
+        if let Some(J::String(v)) = extra.get(*from)
+            && !v.is_empty()
+        {
+            opts.insert(s(to), s(v));
+        }
+    }
+    for (from, to) in NUMBERS {
+        // numbers may also be ranges written as strings ("500-1000")
+        match extra.get(*from) {
+            Some(J::Number(n)) => {
+                opts.insert(s(to), s(&n.to_string()));
+            }
+            Some(J::String(v)) if !v.is_empty() => {
+                opts.insert(s(to), s(v));
+            }
+            _ => {}
+        }
+    }
+    if matches!(extra.get("noGRPCHeader"), Some(J::Bool(true))) {
+        opts.insert(s("no-grpc-header"), Value::Bool(true));
+    }
+    if let Some(J::Bool(v)) = extra.get("xPaddingObfsMode") {
+        opts.insert(s("x-padding-obfs-mode"), Value::Bool(*v));
+    }
+    if let Some(J::Object(headers)) = extra.get("headers") {
+        let headers: Mapping = headers
+            .iter()
+            .filter_map(|(k, v)| v.as_str().map(|v| (s(k), s(v))))
+            .collect();
+        if !headers.is_empty() {
+            opts.insert(s("headers"), Value::Mapping(headers));
+        }
+    }
+    if let Some(J::Object(xmux)) = extra.get("xmux") {
+        let reuse = xmux_to_reuse(xmux);
+        if !reuse.is_empty() {
+            opts.insert(s("reuse-settings"), Value::Mapping(reuse));
+        }
+    }
+}
+
+fn xmux_to_reuse(xmux: &serde_json::Map<String, serde_json::Value>) -> Mapping {
+    const FIELDS: &[(&str, &str)] = &[
+        ("maxConnections", "max-connections"),
+        ("maxConcurrency", "max-concurrency"),
+        ("cMaxReuseTimes", "c-max-reuse-times"),
+        ("hMaxRequestTimes", "h-max-request-times"),
+        ("hMaxReusableSecs", "h-max-reusable-secs"),
+    ];
+    let mut reuse = Mapping::new();
+    for (from, to) in FIELDS {
+        match xmux.get(*from) {
+            Some(serde_json::Value::String(v)) if !v.is_empty() => {
+                reuse.insert(s(to), s(v));
+            }
+            Some(serde_json::Value::Number(n)) => {
+                reuse.insert(s(to), s(&n.to_string()));
+            }
+            _ => {}
+        }
+    }
+    if let Some(secs) = xmux.get("hKeepAlivePeriod").and_then(serde_json::Value::as_u64) {
+        reuse.insert(s("h-keep-alive-period"), Value::Number(secs.into()));
+    }
+    reuse
 }
 
 const fn or_root(path: &str) -> &str {
@@ -960,6 +1073,8 @@ fn share_transport<'a>(link: &'a Link, host: &'a str) -> TransportParams<'a> {
         mode: link.q("mode"),
         early_data: link.q("ed"),
         early_data_header: link.q("eh"),
+        xhttp_extra: link.q("extra"),
+        x_padding_bytes: link.q_any(&["x_padding_bytes", "xPaddingBytes"]),
     }
 }
 

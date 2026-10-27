@@ -717,3 +717,57 @@ fn mihomo_broken_nodes_are_pruned_and_the_rest_load() {
     let cfg: Value = serde_yaml_ng::from_str(&yaml).unwrap();
     assert_eq!(proxy_names(&cfg), vec!["Node1", "Node2", "Node3"]);
 }
+
+// ---------------------------------------------------------------------------
+// XHTTP (Xray share-link standard)
+// ---------------------------------------------------------------------------
+
+/// A real provider link (uuid replaced). Every node from this subscription
+/// timed out: the `?=` in the path reached mihomo, which requested
+/// `/search%3F=/<session>` while the server serves `/search/<session>`.
+const XHTTP_PROVIDER_LINK: &str = "vless://b831381d-6324-4d53-ad4f-8cda48b30811@ir.example.com:2083?alpn=h2%2Chttp%2F1.1%2Ch3&encryption=none&extra=%7B%22mode%22%3A%22auto%22%2C%22xPaddingBytes%22%3A%22100-1000%22%7D&fp=chrome&host=IR.Example.Com&mode=auto&path=%2Fsearch%3F%3D&security=tls&sni=IR.Example.com&type=xhttp&x_padding_bytes=100-1000#%F0%9F%87%A9%F0%9F%87%AA%20MAX%20~%20DE";
+
+#[test]
+fn xhttp_path_query_is_stripped_like_xray() {
+    let m = one(XHTTP_PROVIDER_LINK);
+    assert_eq!(str_at(&m, "network"), "xhttp");
+    assert_eq!(str_at(&m, "xhttp-opts.path"), "/search");
+    assert_eq!(str_at(&m, "xhttp-opts.host"), "IR.Example.Com");
+    assert_eq!(str_at(&m, "xhttp-opts.mode"), "auto");
+    assert_eq!(str_at(&m, "xhttp-opts.x-padding-bytes"), "100-1000");
+    assert_eq!(str_at(&m, "servername"), "IR.Example.com");
+    assert_eq!(str_at(&m, "name"), "🇩🇪 MAX ~ DE");
+}
+
+#[test]
+fn xhttp_extra_settings_are_kept() {
+    let extra = r#"{"headers":{"X-Test":"1"},"noGRPCHeader":true,"xPaddingBytes":"200-400","scMaxEachPostBytes":1000000,"scMinPostsIntervalMs":"10-50","xmux":{"maxConcurrency":"16-32","hKeepAlivePeriod":30}}"#;
+    let link = format!(
+        "vless://{UUID}@1.2.3.4:443?type=xhttp&security=tls&sni=a.com&path=%2Fx&mode=packet-up&extra={}#X",
+        percent_encoding::utf8_percent_encode(extra, percent_encoding::NON_ALPHANUMERIC)
+    );
+    let m = one(&link);
+    assert_eq!(str_at(&m, "xhttp-opts.path"), "/x");
+    assert_eq!(str_at(&m, "xhttp-opts.mode"), "packet-up");
+    assert_eq!(str_at(&m, "xhttp-opts.headers.X-Test"), "1");
+    assert_eq!(get(&m, "xhttp-opts.no-grpc-header").as_bool(), Some(true));
+    assert_eq!(str_at(&m, "xhttp-opts.x-padding-bytes"), "200-400");
+    assert_eq!(str_at(&m, "xhttp-opts.sc-max-each-post-bytes"), "1000000");
+    assert_eq!(str_at(&m, "xhttp-opts.sc-min-posts-interval-ms"), "10-50");
+    assert_eq!(str_at(&m, "xhttp-opts.reuse-settings.max-concurrency"), "16-32");
+    assert_eq!(
+        get(&m, "xhttp-opts.reuse-settings.h-keep-alive-period").as_u64(),
+        Some(30)
+    );
+}
+
+#[test]
+fn mihomo_accepts_provider_xhttp_config() {
+    let Ok(bin) = std::env::var("SR_VERGE_MIHOMO") else {
+        eprintln!("SR_VERGE_MIHOMO not set, skipping mihomo validation");
+        return;
+    };
+    let yaml = try_convert_txt_to_yaml(XHTTP_PROVIDER_LINK).unwrap().unwrap();
+    let (ok, log) = mihomo_test(&bin, &yaml);
+    assert!(ok, "mihomo rejected the config:\n{log}\n---\n{yaml}");
+}
