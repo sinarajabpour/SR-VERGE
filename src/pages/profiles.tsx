@@ -65,6 +65,7 @@ import {
   reorderProfile,
   updateProfile,
 } from '@/services/cmds'
+import { profileNameFromConfig } from '@/services/link-import'
 import { showNotice } from '@/services/notice-service'
 import { queryClient } from '@/services/query-client'
 import {
@@ -337,7 +338,10 @@ const ProfilePage = () => {
         const yaml = await convertProxyUri(trimmed)
         const item = {
           type: 'local',
-          name: t('profiles.page.importForm.uriProfileName'),
+          name: profileNameFromConfig(
+            yaml,
+            t('profiles.page.importForm.uriProfileName'),
+          ),
           desc: '',
           url: '',
           option: {

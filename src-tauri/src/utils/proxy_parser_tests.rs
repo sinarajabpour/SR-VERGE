@@ -771,3 +771,39 @@ fn mihomo_accepts_provider_xhttp_config() {
     let (ok, log) = mihomo_test(&bin, &yaml);
     assert!(ok, "mihomo rejected the config:\n{log}\n---\n{yaml}");
 }
+
+/// A real REALITY + XHTTP link (uuid replaced). The provider asks for the
+/// post-quantum key share; without it mihomo's "chrome" ClientHello lacks
+/// X25519MLKEM768 and no longer looks like Chrome.
+const REALITY_XHTTP_LINK: &str = "vless://b831381d-6324-4d53-ad4f-8cda48b30811@13.140.95.211:443?encryption=none&extra=%7B%22mode%22%3A%22auto%22%2C%22xPaddingBytes%22%3A%22100-1000%22%7D&fp=chrome&host=&mode=auto&path=%2Findex%2Fmain%2F&pbk=4vmBU0kTyD8belV4uorbundNHjDF6DyLwQCHUgL1zA4&security=reality&sid=1d445d&sni=pro.radeon.com&spx=%2F7109f1e8f774f44&support-x25519mlkem768=true&type=xhttp&x_padding_bytes=100-1000#index-6rdoc3y271";
+
+#[test]
+fn reality_keeps_post_quantum_key_share_flag() {
+    let m = one(REALITY_XHTTP_LINK);
+    assert_eq!(str_at(&m, "name"), "index-6rdoc3y271");
+    assert_eq!(str_at(&m, "servername"), "pro.radeon.com");
+    assert_eq!(str_at(&m, "client-fingerprint"), "chrome");
+    assert_eq!(str_at(&m, "reality-opts.short-id"), "1d445d");
+    assert_eq!(get(&m, "reality-opts.support-x25519mlkem768").as_bool(), Some(true));
+    assert_eq!(str_at(&m, "xhttp-opts.path"), "/index/main/");
+    assert_eq!(str_at(&m, "xhttp-opts.x-padding-bytes"), "100-1000");
+    assert!(
+        get(&m, "xhttp-opts").get("host").is_none(),
+        "empty host: mihomo falls back to the SNI"
+    );
+
+    // only when the link asks for it
+    let without = one(&REALITY_XHTTP_LINK.replace("&support-x25519mlkem768=true", ""));
+    assert!(get(&without, "reality-opts").get("support-x25519mlkem768").is_none());
+}
+
+#[test]
+fn mihomo_accepts_reality_xhttp_config() {
+    let Ok(bin) = std::env::var("SR_VERGE_MIHOMO") else {
+        eprintln!("SR_VERGE_MIHOMO not set, skipping mihomo validation");
+        return;
+    };
+    let yaml = try_convert_txt_to_yaml(REALITY_XHTTP_LINK).unwrap().unwrap();
+    let (ok, log) = mihomo_test(&bin, &yaml);
+    assert!(ok, "mihomo rejected the config:\n{log}\n---\n{yaml}");
+}

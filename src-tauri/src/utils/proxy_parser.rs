@@ -604,6 +604,9 @@ struct TlsParams<'a> {
     public_key: &'a str,
     short_id: &'a str,
     pinned_cert: &'a str,
+    /// REALITY `support-x25519mlkem768`: offer the post-quantum key share
+    /// real Chrome sends
+    mlkem: bool,
 }
 
 /// Apply TLS options. Returns whether TLS is on.
@@ -643,10 +646,14 @@ fn apply_tls(node: &mut Node, p: &TlsParams<'_>, sni_key: &str, always_tls: bool
     }
     node.str("fingerprint", p.pinned_cert);
     if reality {
-        node.map(
-            "reality-opts",
-            mapping(&[("public-key", s(p.public_key)), ("short-id", s(p.short_id))]),
-        );
+        let mut opts = mapping(&[("public-key", s(p.public_key)), ("short-id", s(p.short_id))]);
+        // Without it mihomo strips X25519MLKEM768 from the ClientHello, so a
+        // "chrome" fingerprint no longer looks like Chrome. Only enabled when
+        // the link asks: old REALITY servers mishandle that key share.
+        if p.mlkem {
+            opts.insert(s("support-x25519mlkem768"), Value::Bool(true));
+        }
+        node.map("reality-opts", opts);
     }
     true
 }
@@ -1060,6 +1067,7 @@ fn share_tls<'a>(link: &'a Link, host: &'a str) -> TlsParams<'a> {
         public_key: link.q("pbk"),
         short_id: link.q("sid"),
         pinned_cert: link.q("pcs"),
+        mlkem: parse_bool(link.q("support-x25519mlkem768")),
     }
 }
 
