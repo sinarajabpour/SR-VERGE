@@ -13,7 +13,7 @@ on:
       tag:
         description: "Release tag to publish (e.g. v2.5.2)"
         required: true
-        default: "v2.5.2"
+        default: "v2.6.0"
 
 permissions:
   contents: write
@@ -88,7 +88,15 @@ jobs:
         with:
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
           releaseName: "SR Verge ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}"
-          releaseBody: "SR Verge release. Installers are unsigned — on Windows choose 'More info → Run anyway' if SmartScreen warns."
-          releaseDraft: true
+          releaseBody: |
+            Download the installer for your system below:
+            - **Windows**: `SR.Verge_*_x64-setup.exe` (unsigned: if SmartScreen warns, choose *More info → Run anyway*)
+            - **macOS (Apple Silicon)**: `SR.Verge_*_aarch64.dmg` (if macOS says the app is damaged, run `sudo xattr -r -d com.apple.quarantine "/Applications/SR Verge.app"`)
+            - **Linux**: `.deb` or `.rpm`
+
+            What's new and how to use it: see the [README](https://github.com/sinarajabpour/SR-VERGE#readme) ([فارسی](https://github.com/sinarajabpour/SR-VERGE/blob/main/docs/README_fa.md)).
+          # Publish as soon as all three platforms have uploaded. Each matrix
+          # job uploads to the same release; a draft would need a manual click.
+          releaseDraft: false
           prerelease: false
           args: --target ${{ matrix.target }}

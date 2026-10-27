@@ -64,6 +64,9 @@ settings) through SR Verge. It needs a small helper service:
    administrator password when asked. This installs the service.
 3. Turn on the **Tun Mode** switch.
 
+On **Windows** you can skip the service: right-click SR Verge → **Run as
+administrator**, then turn on **Tun Mode**.
+
 ## Features
 
 ### Everything from Clash Verge
@@ -82,14 +85,19 @@ settings) through SR Verge. It needs a small helper service:
 
 | Feature | What it does |
 | :--- | :--- |
-| **`.txt` / Base64 subscriptions** | Imports V2Ray-style subscription links (a Base64 list of `vless://`, `vmess://`, `trojan://`, `ss://`, `ssr://`, `hysteria2://`, `tuic://` links) and converts them to a Clash Meta profile automatically. Clash Verge only accepts Clash YAML. |
-| **Paste config links directly** | Paste one or more proxy links (`vless://…`, `vmess://…`, etc.) into the import box. No subscription URL needed. |
+| **V2Ray / Base64 subscriptions** | Imports V2Ray-style subscriptions (a Base64 or plain-text list of links, as served by Marzban, 3x-ui, Hiddify and most Iranian providers) and converts them to a Clash Meta profile automatically. Clash Verge only accepts Clash YAML. |
+| **Every common link format** | `vless://` (REALITY, Vision), `vmess://` (v2rayN, Shadowrocket and Xray formats), `trojan://`, `ss://` (incl. Shadowsocks 2022 and obfs/v2ray-plugin), `ssr://`, `hysteria://`, `hysteria2://`/`hy2://` (incl. port hopping), `tuic://`, `anytls://`, `socks://` and `wireguard://`. Transports: TCP, HTTP header, WebSocket (incl. early data), HTTPUpgrade, HTTP/2, gRPC and XHTTP. |
+| **Paste config links directly** | Paste one or more links (`vless://…`, `vmess://…`, etc.), even several on one line, or a raw Base64 blob, into the import box. No subscription URL needed. `clash://install-config`, `sub://` and `hiddify://import` links are unwrapped too. |
+| **One broken server can't break the profile** | mihomo refuses a whole config when a single server is invalid. On import and update, SR Verge checks the profile with the core, skips the servers it can't use, and tells you which ones were skipped. |
+| **Minimal Clash configs that actually route** | A Clash subscription that only lists `proxies` (no groups or rules) gets a server selector and routing rules, instead of silently sending everything DIRECT. |
+| **Clear import errors** | A blocked or expired link (an HTML page) or a sing-box/Xray JSON config gets a message you can act on, instead of "invalid yaml". |
 | **Duplicate-name fix** | Some providers ship several servers with the same name, which mihomo rejects. SR Verge renames duplicates on import so the profile loads. |
 | **TUN DNS that works under filtering** | In TUN mode, server addresses are resolved with your system DNS first instead of blocked DoH servers (Cloudflare/Google). In Iran, servers now connect in TUN mode instead of timing out. |
 | **One-click Iran routing** | Two buttons on the **Rules** page send Iranian sites and IPs **direct** while everything else uses the proxy: <br>• **Iran Direct**: uses the built-in geo data and works offline. <br>• **Iran Direct (Online List)**: adds a much larger Iranian domain list that updates in the background. |
 | **Per-site and per-app routing** | Choose which websites or programs (e.g. `Telegram.exe`) skip the proxy or always use it. Local network traffic (router, NAS, localhost) stays direct, and a **DIRECT** option is added to the server list. |
-| **Edit Rules & Global Rules editors** | Edit routing rules from the Rules page with a ready-to-use template and examples. Global rules apply to every profile and survive subscription updates. |
+| **Edit Rules & Global Rules editors** | Edit routing rules from the Rules page with a ready-to-use template and examples. Global rules apply to every profile and survive subscription updates. A rule that points at a group the current profile doesn't have is skipped (and logged) instead of breaking the whole profile. |
 | **Working `prepend-rules` / `append-rules`** | These Global Extend Config keys are now applied correctly. Before this fix they were silently ignored. |
+| **Reliable TUN service on macOS and Windows** | The bundled TUN helper service is pinned to the exact version the app speaks to (a mismatch caused "Install Service failed: IPC path not ready"), and reinstalling the service on Windows waits for the old one to be removed. |
 | **No more freezes when offline** | Config validation now has a 20-second limit. Losing the connection no longer locks the app until a reboot. |
 | **Persian (فارسی) interface** | Improved Persian translation with the Vazirmatn font. |
 | **Quiet by default** | Upstream auto-update checks are off, so the app never replaces itself with Clash Verge. |
@@ -105,9 +113,18 @@ pnpm run prebuild
 pnpm dev
 ```
 
-To publish a release, push a version tag (for example `v2.5.9`). GitHub
-Actions builds the Windows, macOS and Linux installers and attaches them to a
-draft release.
+Run the backend tests (link parsing, profile import/update and rules). To
+also load the generated configs in the real core, point the tests at a mihomo
+binary and a folder holding `geosite.dat` and `Country.mmdb`:
+
+```shell
+cargo test -p clash-verge
+SR_VERGE_MIHOMO=/path/to/mihomo SR_VERGE_GEODATA=/path/to/geodata cargo test -p clash-verge
+```
+
+To publish a release, push a version tag (for example `v2.6.0`) or run the
+**Release** workflow from the Actions tab. GitHub Actions builds the Windows,
+macOS and Linux installers and publishes them as a release.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for more details.
 
